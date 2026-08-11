@@ -9,7 +9,13 @@ cpu.rev = 0x10
 type = "cfi-flash"
 bus = "EBU"
 ebu.cs = 0
-flash = { vid = 0x0089, pid = 0x88B0 }
+flash = { vid = 0x0089, pid = 0x88B0, size = 0x4000000 }
+
+[peripheral.FLASH1]
+type = "cfi-flash"
+bus = "EBU"
+ebu.cs = 2
+flash = { vid = 0x0089, pid = 0x88B0, size = 0x4000000 }
 
 [peripheral.SDRAM]
 type = "sdram"
