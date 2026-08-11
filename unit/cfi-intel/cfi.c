@@ -116,6 +116,12 @@ static void cfi_read_map_sample(struct flash_device *flash, uint32_t sample, uin
 	}
 }
 
+void cfi_sample_map(struct flash_device *flash) {
+	cfi_read_map_sample(flash, 0, 0);
+	cfi_read_map_sample(flash, 1, flash->size / 2);
+	cfi_read_map_sample(flash, 2, flash->size - sizeof(flash->map_samples[0]));
+}
+
 bool cfi_probe(uint32_t cs, struct flash_device *flash) {
 	cfi_disable_chip_selects();
 	cfi_map(cs, FLASH_WINDOW_BASE, 0);
@@ -145,10 +151,9 @@ bool cfi_probe(uint32_t cs, struct flash_device *flash) {
 		flash->size >= sizeof(flash->map_samples[0]) &&
 		flash->size <= FLASH_WINDOW_END - FLASH_WINDOW_BASE
 	);
+	flash->window_size = flash->size;
 	if (can_sample_map) {
-		cfi_read_map_sample(flash, 0, 0);
-		cfi_read_map_sample(flash, 1, flash->size / 2);
-		cfi_read_map_sample(flash, 2, flash->size - sizeof(flash->map_samples[0]));
+		cfi_sample_map(flash);
 	}
 	return (
 		flash->size <= FLASH_WINDOW_END - FLASH_WINDOW_BASE &&
