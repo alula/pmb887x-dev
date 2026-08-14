@@ -169,6 +169,7 @@ add_peripheral_test(
 	dif-v2/lcd-board.c
 	dif-v2/lcd-transport.c
 	lcd/lcd-controller.c
+	lcd/r61505.c
 	lcd/l5f30539p00.c
 	lcd/jbt6k71.c
 )
@@ -177,6 +178,7 @@ add_peripheral_test(
 	dif-v2/lcd.c
 	dif-v2/lcd-board.c
 	lcd/lcd-controller.c
+	lcd/r61505.c
 	lcd/l5f30539p00.c
 	lcd/jbt6k71.c
 )

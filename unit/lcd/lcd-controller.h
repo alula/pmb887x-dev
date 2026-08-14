@@ -3,6 +3,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#define LCD_CONTROLLER_ID_UNAVAILABLE UINT32_MAX
+
 enum lcd_pixel_format {
 	LCD_PIXEL_FORMAT_RGB565,
 	LCD_PIXEL_FORMAT_RGB666_8_8_2,
@@ -17,6 +19,7 @@ enum lcd_controller_type {
 	LCD_CONTROLLER_PCF8882,
 	LCD_CONTROLLER_SSD1286,
 	LCD_CONTROLLER_LS020,
+	LCD_CONTROLLER_R61505,
 };
 
 struct lcd_color {
@@ -49,6 +52,7 @@ struct lcd_controller {
 	bool swap_axes_changes_gram_order;
 	bool reverse_x_mirrors_coordinates;
 	bool reverse_y_mirrors_coordinates;
+	bool (*matches_id)(uint32_t id);
 	bool (*probe)(uint32_t *id);
 	bool (*initialize)(void);
 	void (*quantize_color)(enum lcd_pixel_format format, const struct lcd_color *input, struct lcd_color *output);
@@ -64,6 +68,8 @@ extern const struct lcd_controller lcd_controller_l5f30539p00;
 extern const struct lcd_controller lcd_controller_jbt6k71;
 extern const struct lcd_controller lcd_controller_pcf8882;
 extern const struct lcd_controller lcd_controller_ssd1286;
+extern const struct lcd_controller lcd_controller_r61505;
 
 void lcd_controller_reset(const struct lcd_controller *lcd);
+bool lcd_controller_matches_id(const struct lcd_controller *lcd, uint32_t id);
 const struct lcd_controller *lcd_controller_detect(uint32_t *detected_id);

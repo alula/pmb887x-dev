@@ -1,11 +1,9 @@
 #include <pmb887x.h>
-#include <pmic/PASIC.h>
 
 #include "lcd-board.h"
 
-#if !defined(BOARD_SIEMENS_E71) && !defined(BOARD_SIEMENS_EL71)
-#error No LCD power implementation for this board
-#endif
+#if defined(BOARD_SIEMENS_E71) || defined(BOARD_SIEMENS_EL71)
+#include <pmic/PASIC.h>
 
 #define LCD_BACKLIGHT_LEVEL 0x50
 
@@ -32,3 +30,24 @@ void lcd_board_enable_backlight(void) {
 	i2c_smbus_write_byte(PASIC_I2C_ADDR, PASIC_LIGHT_PWM1, LCD_BACKLIGHT_LEVEL);
 	i2c_smbus_write_byte(PASIC_I2C_ADDR, PASIC_LIGHT_CONTROL, light_control);
 }
+
+#elif defined(BOARD_LG_KE970)
+
+void lcd_board_initialize_light(void) {
+	CAPCOM_CLC(CAPCOM1) = 0x0100;
+}
+
+void lcd_board_enable_backlight(void) {
+	CAPCOM_OUT(CAPCOM1) |= CAPCOM_OUT_O3;
+
+	for (int i = 0; i < 20; i++) { // brightness is 0..31 - 0 = max, 31 = off, wrapping around
+		stopwatch_usleep_wd(100);
+		CAPCOM_OUT(CAPCOM1) &= ~(CAPCOM_OUT_O3);
+		stopwatch_usleep_wd(100);
+		CAPCOM_OUT(CAPCOM1) |= CAPCOM_OUT_O3;
+	}
+}
+
+#else
+#error No LCD power implementation for this board
+#endif
