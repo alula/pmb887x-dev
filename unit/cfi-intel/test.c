@@ -23,6 +23,31 @@ static void scan_flashes(void) {
 	cfi_disable_chip_selects();
 }
 
+#if defined(BOARD_LG_KE970)
+static void coalesce_split_flashes(void) {
+	for (uint32_t i = 0; i < flash_count; i++) {
+		for (uint32_t j = i + 1; j < flash_count; j++) {
+			if (flashes[i].manufacturer != flashes[j].manufacturer ||
+				flashes[i].device != flashes[j].device ||
+				flashes[i].size != flashes[j].size) {
+				continue;
+			}
+
+			struct flash_device merged = flashes[i].cs < flashes[j].cs ? flashes[i] : flashes[j];
+			merged.split = true;
+			merged.high_cs = flashes[i].cs < flashes[j].cs ? flashes[j].cs : flashes[i].cs;
+			merged.window_size = merged.size / 2;
+			flashes[i] = merged;
+			for (uint32_t k = j; k + 1 < flash_count; k++) {
+				flashes[k] = flashes[k + 1];
+			}
+			flash_count--;
+			return;
+		}
+	}
+}
+#endif
+
 static bool configure_flash_map(void) {
 	cfi_disable_chip_selects();
 
@@ -47,8 +72,24 @@ static bool configure_flash_map(void) {
 
 		flash->base = base;
 		flash->mapped = true;
-		cfi_map(flash->cs, base, 27 - flash->size_exponent);
-		printf("# CS%u mapped at %08X..%08X\n", flash->cs, base, base + flash->size - 1);
+		if (flash->split) {
+			uint32_t window_exponent = flash->size_exponent - 1;
+			cfi_map(flash->cs, base, 27 - window_exponent);
+			cfi_map(flash->high_cs, base + flash->window_size, 27 - window_exponent);
+			cfi_enter_read_array(base);
+			cfi_enter_read_array(base + flash->window_size);
+			cfi_sample_map(flash);
+			printf(
+				"# CS%u+CS%u mapped at %08X..%08X (128 MiB die split into 64 MiB windows)\n",
+				flash->cs,
+				flash->high_cs,
+				base,
+				base + flash->size - 1
+			);
+		} else {
+			cfi_map(flash->cs, base, 27 - flash->size_exponent);
+			printf("# CS%u mapped at %08X..%08X\n", flash->cs, base, base + flash->size - 1);
+		}
 		base += flash->size;
 	}
 	return true;
@@ -654,13 +695,25 @@ static void test_read_array_recovery(const struct flash_device *flash) {
 }
 
 static void test_flash_mapping(const struct flash_device *flash) {
-	uint32_t expected_addrsel = (
-		EBU_ADDRSEL_REGENAB |
-		((27 - flash->size_exponent) << EBU_ADDRSEL_MASK_SHIFT) |
-		flash->base
-	);
-
-	test_eq_u32("EBU address window", expected_addrsel, EBU_ADDRSEL(flash->cs));
+	if (flash->split) {
+		uint32_t window = (
+			EBU_ADDRSEL_REGENAB |
+			((28 - flash->size_exponent) << EBU_ADDRSEL_MASK_SHIFT)
+		);
+		test_eq_u32("EBU low window", window | flash->base, EBU_ADDRSEL(flash->cs));
+		test_eq_u32(
+			"EBU high window",
+			window | (flash->base + flash->window_size),
+			EBU_ADDRSEL(flash->high_cs)
+		);
+	} else {
+		uint32_t expected_addrsel = (
+			EBU_ADDRSEL_REGENAB |
+			((27 - flash->size_exponent) << EBU_ADDRSEL_MASK_SHIFT) |
+			flash->base
+		);
+		test_eq_u32("EBU address window", expected_addrsel, EBU_ADDRSEL(flash->cs));
+	}
 	test_eq_memory(
 		"flash start is mapped",
 		flash->map_samples[0],
@@ -687,6 +740,9 @@ int main(void) {
 
 	test_category("Scan");
 	scan_flashes();
+#if defined(BOARD_LG_KE970)
+	coalesce_split_flashes();
+#endif
 	test_check("at least one CFI flash found", flash_count > 0);
 	bool flash_map_valid = configure_flash_map();
 	test_check("all flash windows fit EBU address space", flash_map_valid);

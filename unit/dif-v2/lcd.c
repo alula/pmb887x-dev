@@ -7,8 +7,8 @@
 #include "lcd-board.h"
 #include "test.h"
 
-#if !defined(BOARD_SIEMENS_E71) && !defined(BOARD_SIEMENS_EL71)
-#error The DIFv2 LCD interface test currently requires BOARD=siemens-e71 or BOARD=siemens-el71
+#if !defined(BOARD_SIEMENS_E71) && !defined(BOARD_SIEMENS_EL71) && !defined(BOARD_LG_KE970)
+#error The DIFv2 LCD interface test currently requires BOARD=siemens-e71 or BOARD=siemens-el71 or BOARD=lg-ke970
 #endif
 
 #define DIF_TIMEOUT_MS 100
@@ -727,7 +727,10 @@ int main(void) {
 	test_check("supported LCD controller detected", lcd != NULL);
 	if (lcd == NULL)
 		return test_finish();
-	test_eq_u32("controller ID matches selected backend", lcd->id, detected_id);
+	test_check(
+		"controller ID is supported by selected backend",
+		lcd_controller_matches_id(lcd, detected_id)
+	);
 	test_check("controller initializes", lcd_reset_and_init_controller());
 
 	uint16_t probe_pixel = 0;

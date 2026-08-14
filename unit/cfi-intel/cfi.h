@@ -36,6 +36,9 @@ struct flash_device {
 	uint32_t test_block;
 	uint32_t test_block_size;
 	bool mapped;
+	bool split;
+	uint32_t high_cs;
+	uint32_t window_size;
 	struct erase_region erase[CFI_MAX_ERASE_REGIONS];
 	uint16_t map_samples[3][MAP_SAMPLE_WORDS];
 };
@@ -52,6 +55,7 @@ void cfi_enter_status(uint32_t base);
 void cfi_disable_chip_selects(void);
 void cfi_map(uint32_t cs, uint32_t base, uint32_t mask);
 bool cfi_probe(uint32_t cs, struct flash_device *flash);
+void cfi_sample_map(struct flash_device *flash);
 bool cfi_range_is_blank(uint32_t address, uint32_t size);
 bool cfi_find_blank_block(struct flash_device *flash, uint32_t alignment);
 uint16_t cfi_wait_ready(uint32_t address);

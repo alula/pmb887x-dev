@@ -6,8 +6,8 @@
 #include "lcd-board.h"
 #include "test.h"
 
-#if !defined(BOARD_SIEMENS_E71) && !defined(BOARD_SIEMENS_EL71)
-#error The DIFv2 LCD test currently requires BOARD=siemens-e71 or BOARD=siemens-el71
+#if !defined(BOARD_SIEMENS_E71) && !defined(BOARD_SIEMENS_EL71) && !defined(BOARD_LG_KE970)
+#error The DIFv2 LCD test currently requires BOARD=siemens-e71 or BOARD=siemens-el71 or BOARD=lg-ke970
 #endif
 
 static const struct lcd_color TEST_COLORS[] = {
@@ -76,7 +76,14 @@ static bool read_pixel(const struct lcd_controller *lcd, uint16_t x, uint16_t y,
 	return lcd->set_window(x, x, y, y) && lcd->read_pixels(color, 1);
 }
 
-static void test_pixel_formats(const struct lcd_controller *lcd) {
+static enum lcd_pixel_format select_test_format(const struct lcd_controller *lcd) {
+	if ((lcd->pixel_formats & BIT(LCD_PIXEL_FORMAT_RGB666)) != 0)
+		return LCD_PIXEL_FORMAT_RGB666;
+
+	return LCD_PIXEL_FORMAT_RGB565;
+}
+
+static void test_pixel_formats(const struct lcd_controller *lcd, bool can_read) {
 	test_category("GRAM pixel formats");
 	static const struct pixel_format_profile {
 		enum lcd_pixel_format format;
@@ -97,20 +104,25 @@ static void test_pixel_formats(const struct lcd_controller *lcd) {
 			lcd->quantize_color(FORMATS[i].format, &TEST_COLORS[color], &expected[color]);
 		printf("# pixel format: %s\n", FORMATS[i].name);
 		bool success = lcd->set_pixel_format(FORMATS[i].format) &&
-			lcd->set_window(20, 23, 20, 20) && lcd->write_pixels(TEST_COLORS, ARRAY_SIZE(TEST_COLORS)) &&
-			lcd->set_window(20, 23, 20, 20) && lcd->read_pixels(actual, ARRAY_SIZE(actual));
+			lcd->set_window(20, 23, 20, 20) && lcd->write_pixels(TEST_COLORS, ARRAY_SIZE(TEST_COLORS));
+		if (can_read)
+			success = success && lcd->set_window(20, 23, 20, 20) &&
+				lcd->read_pixels(actual, ARRAY_SIZE(actual));
 
-		test_check("pixel format GRAM round-trip completes", success);
-		test_check("pixel format GRAM values match",
-			success && colors_equal(expected, actual, ARRAY_SIZE(actual)));
+		test_check(can_read ? "pixel format GRAM round-trip completes" : "pixel format GRAM write completes", success);
+		if (can_read) {
+			test_check("pixel format GRAM values match",
+				success && colors_equal(expected, actual, ARRAY_SIZE(actual)));
+		}
 	}
 }
 
-static void test_address_modes(const struct lcd_controller *lcd) {
+static void test_address_modes(const struct lcd_controller *lcd, bool can_read) {
 	test_category("GRAM address mode matrix");
 	static const struct lcd_address_mode NORMAL_MODE = { 0 };
+	enum lcd_pixel_format format = select_test_format(lcd);
 
-	test_check("RGB666 selected for address tests", lcd->set_pixel_format(LCD_PIXEL_FORMAT_RGB666));
+	test_check("pixel format selected for address tests", lcd->set_pixel_format(format));
 	for (uint32_t bits = 0; bits < 8; bits++) {
 		struct lcd_address_mode mode = {
 			.swap_axes = (bits & BIT(0)) != 0,
@@ -133,7 +145,15 @@ static void test_address_modes(const struct lcd_controller *lcd) {
 			uint32_t physical_offset_x = mode.reverse_x ? 1 - address_x : address_x;
 			uint32_t physical_offset_y = mode.reverse_y ? 1 - address_y : address_y;
 
-			expected[physical_offset_y * 2 + physical_offset_x] = TEST_COLORS[i];
+			lcd->quantize_color(
+				format,
+				&TEST_COLORS[i],
+				&expected[physical_offset_y * 2 + physical_offset_x]
+			);
+		}
+		if (!can_read) {
+			test_check("address mode write completes", success);
+			continue;
 		}
 		for (uint32_t y = 0; y < 2; y++) {
 			for (uint32_t x = 0; x < 2; x++)
@@ -146,7 +166,7 @@ static void test_address_modes(const struct lcd_controller *lcd) {
 	}
 }
 
-static void test_window_and_cursor(const struct lcd_controller *lcd) {
+static void test_window_and_cursor(const struct lcd_controller *lcd, bool can_read) {
 	test_category("GRAM window and cursor");
 	static const struct lcd_address_mode NORMAL_MODE = { 0 };
 	static const struct lcd_color COLORS[] = {
@@ -162,22 +182,37 @@ static void test_window_and_cursor(const struct lcd_controller *lcd) {
 		{ .red = 0x00, .green = 0x00, .blue = 0x3F },
 	};
 	struct lcd_color actual[ARRAY_SIZE(WRAPPED)] = { 0 };
+	struct lcd_color expected[ARRAY_SIZE(TEST_COLORS)];
+	struct lcd_color wrapped[ARRAY_SIZE(WRAPPED)];
+	enum lcd_pixel_format format = select_test_format(lcd);
+	for (uint32_t i = 0; i < ARRAY_SIZE(expected); i++)
+		lcd->quantize_color(format, &TEST_COLORS[i], &expected[i]);
+	for (uint32_t i = 0; i < ARRAY_SIZE(wrapped); i++)
+		lcd->quantize_color(format, &WRAPPED[i], &wrapped[i]);
 
-	bool success = lcd->set_pixel_format(LCD_PIXEL_FORMAT_RGB666) && lcd->set_address_mode(&NORMAL_MODE) &&
+	bool success = lcd->set_pixel_format(format) && lcd->set_address_mode(&NORMAL_MODE) &&
 		lcd->set_window(0xE9, 0xEB, 70, 70) && lcd->write_pixels(COLORS, ARRAY_SIZE(COLORS));
-	for (uint32_t x = 0; x < ARRAY_SIZE(actual); x++)
-		success &= read_pixel(lcd, 0xE9 + x, 70, &actual[x]);
-	test_check("horizontal window wrap completes", success);
-	test_check("X1/X2 wrap to the first column",
-		success && colors_equal(WRAPPED, actual, ARRAY_SIZE(actual)));
+	if (can_read) {
+		for (uint32_t x = 0; x < ARRAY_SIZE(actual); x++)
+			success &= read_pixel(lcd, 0xE9 + x, 70, &actual[x]);
+	}
+	test_check(can_read ? "horizontal window wrap completes" : "horizontal window write completes", success);
+	if (can_read) {
+		test_check("X1/X2 wrap to the first column",
+			success && colors_equal(wrapped, actual, ARRAY_SIZE(actual)));
+	}
 
 	memset(actual, 0, sizeof(actual));
 	success = lcd->set_window(75, 75, 0x100, 0x102) && lcd->write_pixels(COLORS, ARRAY_SIZE(COLORS));
-	for (uint32_t y = 0; y < ARRAY_SIZE(actual); y++)
-		success &= read_pixel(lcd, 75, 0x100 + y, &actual[y]);
-	test_check("vertical window wrap completes", success);
-	test_check("Y1/Y2 wrap to the first row",
-		success && colors_equal(WRAPPED, actual, ARRAY_SIZE(actual)));
+	if (can_read) {
+		for (uint32_t y = 0; y < ARRAY_SIZE(actual); y++)
+			success &= read_pixel(lcd, 75, 0x100 + y, &actual[y]);
+	}
+	test_check(can_read ? "vertical window wrap completes" : "vertical window write completes", success);
+	if (can_read) {
+		test_check("Y1/Y2 wrap to the first row",
+			success && colors_equal(wrapped, actual, ARRAY_SIZE(actual)));
+	}
 
 	if (lcd->set_cursor == NULL)
 		return;
@@ -185,36 +220,49 @@ static void test_window_and_cursor(const struct lcd_controller *lcd) {
 	for (uint32_t i = 0; i < ARRAY_SIZE(baseline); i++)
 		baseline[i] = TEST_COLORS[3];
 	success = lcd->set_window(0xD9, 0xDD, 80, 84) && lcd->write_pixels(baseline, ARRAY_SIZE(baseline)) &&
-		lcd->set_cursor(0xDB, 80) && lcd->write_pixels(&TEST_COLORS[0], 1) &&
-		read_pixel(lcd, 0xDB, 80, &actual[0]) && read_pixel(lcd, 0xDA, 80, &actual[1]);
-	test_check("current X write/read completes", success);
-	test_check("current X selects only the requested column",
-		success && colors_equal(&TEST_COLORS[0], &actual[0], 1) &&
-		colors_equal(&TEST_COLORS[3], &actual[1], 1));
+		lcd->set_cursor(0xDB, 80) && lcd->write_pixels(&TEST_COLORS[0], 1);
+	if (can_read)
+		success = success && read_pixel(lcd, 0xDB, 80, &actual[0]) && read_pixel(lcd, 0xDA, 80, &actual[1]);
+	test_check(can_read ? "current X write/read completes" : "current X write completes", success);
+	if (can_read) {
+		test_check("current X selects only the requested column",
+			success && colors_equal(&expected[0], &actual[0], 1) &&
+				colors_equal(&expected[3], &actual[1], 1));
+	}
 
 	for (uint32_t i = 0; i < 5; i++)
 		baseline[i] = TEST_COLORS[3];
 	success = lcd->set_window(80, 80, 0x109, 0x10D) && lcd->write_pixels(baseline, 5) &&
-		lcd->set_cursor(80, 0x10B) && lcd->write_pixels(&TEST_COLORS[1], 1) &&
-		read_pixel(lcd, 80, 0x10B, &actual[0]) && read_pixel(lcd, 80, 0x10A, &actual[1]);
-	test_check("current Y write/read completes", success);
-	test_check("current Y selects only the requested row",
-		success && colors_equal(&TEST_COLORS[1], &actual[0], 1) &&
-		colors_equal(&TEST_COLORS[3], &actual[1], 1));
+		lcd->set_cursor(80, 0x10B) && lcd->write_pixels(&TEST_COLORS[1], 1);
+	if (can_read)
+		success = success && read_pixel(lcd, 80, 0x10B, &actual[0]) && read_pixel(lcd, 80, 0x10A, &actual[1]);
+	test_check(can_read ? "current Y write/read completes" : "current Y write completes", success);
+	if (can_read) {
+		test_check("current Y selects only the requested row",
+			success && colors_equal(&expected[1], &actual[0], 1) &&
+				colors_equal(&expected[3], &actual[1], 1));
+	}
 }
 
-static void test_bgr_mode(const struct lcd_controller *lcd) {
+static void test_bgr_mode(const struct lcd_controller *lcd, bool can_read) {
 	test_category("RGB/BGR mode");
 	static const struct lcd_address_mode RGB_MODE = { 0 };
 	static const struct lcd_address_mode BGR_MODE = { .bgr = true };
 	struct lcd_color actual = { 0 };
+	struct lcd_color expected;
+	enum lcd_pixel_format format = select_test_format(lcd);
+	lcd->quantize_color(format, &TEST_COLORS[3], &expected);
 
-	bool success = lcd->set_address_mode(&BGR_MODE) && lcd->set_window(60, 60, 60, 60) &&
-		lcd->write_pixels(&TEST_COLORS[3], 1) && lcd->set_address_mode(&RGB_MODE) &&
-		lcd->set_window(60, 60, 60, 60) && lcd->read_pixels(&actual, 1);
-	test_check("BGR GRAM round-trip completes", success);
-	test_check("BGR affects the display latch, not stored GRAM data",
-		success && colors_equal(&TEST_COLORS[3], &actual, 1));
+	bool success = lcd->set_pixel_format(format) && lcd->set_address_mode(&BGR_MODE) &&
+		lcd->set_window(60, 60, 60, 60) && lcd->write_pixels(&TEST_COLORS[3], 1) &&
+		lcd->set_address_mode(&RGB_MODE);
+	if (can_read)
+		success = success && lcd->set_window(60, 60, 60, 60) && lcd->read_pixels(&actual, 1);
+	test_check(can_read ? "BGR GRAM round-trip completes" : "BGR GRAM write completes", success);
+	if (can_read) {
+		test_check("BGR affects the display latch, not stored GRAM data",
+			success && colors_equal(&expected, &actual, 1));
+	}
 }
 
 static void draw_visible_pattern(const struct lcd_controller *lcd) {
@@ -240,6 +288,7 @@ static void draw_visible_pattern(const struct lcd_controller *lcd) {
 		bool success = true;
 		for (uint32_t y = 0; y < 40 && success; y++) {
 			uint16_t row_y = band * 40 + y;
+			test_watchdog_serve();
 
 			success &= lcd->set_window(0, lcd->width - 1, row_y, row_y) &&
 				lcd->write_pixels(row, lcd->width);
@@ -261,15 +310,21 @@ int main(void) {
 	test_check("supported LCD controller detected", lcd != NULL);
 	if (lcd == NULL)
 		return test_finish();
-	test_eq_u32("controller ID matches selected backend", lcd->id, detected_id);
+	test_check(
+		"controller ID is supported by selected backend",
+		lcd_controller_matches_id(lcd, detected_id)
+	);
 	lcd_controller_reset(lcd);
 	test_check("controller initializes", lcd->initialize());
 	lcd_board_enable_backlight();
 
-	test_pixel_formats(lcd);
-	test_address_modes(lcd);
-	test_window_and_cursor(lcd);
-	test_bgr_mode(lcd);
+	bool can_read = detected_id != LCD_CONTROLLER_ID_UNAVAILABLE;
+	if (!can_read)
+		printf("# GRAM readback tests skipped: LCD read path unavailable\n");
+	test_pixel_formats(lcd, can_read);
+	test_address_modes(lcd, can_read);
+	test_window_and_cursor(lcd, can_read);
+	test_bgr_mode(lcd, can_read);
 	draw_visible_pattern(lcd);
 
 	return test_finish();

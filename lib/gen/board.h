@@ -9,6 +9,14 @@
 #include "board_generic_pmb8876.h" // IWYU pragma: export
 #endif
 
+#ifdef BOARD_LG_KE800
+#include "board_lg_ke800.h" // IWYU pragma: export
+#endif
+
+#ifdef BOARD_LG_KE970
+#include "board_lg_ke970.h" // IWYU pragma: export
+#endif
+
 #ifdef BOARD_PANASONIC_705P
 #include "board_panasonic_705p.h" // IWYU pragma: export
 #endif

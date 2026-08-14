@@ -121,7 +121,7 @@ foreach(LINK_OPTION IN LISTS DEFAULT_LINK_OPTIONS)
 		list(APPEND CGU_LINK_OPTIONS "${LINK_OPTION}")
 	endif()
 endforeach()
-list(APPEND CGU_LINK_OPTIONS "-Wl,-T,${CMAKE_CURRENT_SOURCE_DIR}/cgu/extram-intram.ld")
+list(APPEND CGU_LINK_OPTIONS "SHELL:-T ${CMAKE_CURRENT_SOURCE_DIR}/cgu/extram-intram.ld")
 set_directory_properties(PROPERTIES LINK_OPTIONS "${CGU_LINK_OPTIONS}")
 add_peripheral_test(cgu cgu/test.c cgu/measure.S cgu/loader.S)
 set_directory_properties(PROPERTIES LINK_OPTIONS "${DEFAULT_LINK_OPTIONS}")
@@ -169,6 +169,7 @@ add_peripheral_test(
 	dif-v2/lcd-board.c
 	dif-v2/lcd-transport.c
 	lcd/lcd-controller.c
+	lcd/r61505.c
 	lcd/l5f30539p00.c
 	lcd/jbt6k71.c
 )
@@ -177,6 +178,7 @@ add_peripheral_test(
 	dif-v2/lcd.c
 	dif-v2/lcd-board.c
 	lcd/lcd-controller.c
+	lcd/r61505.c
 	lcd/l5f30539p00.c
 	lcd/jbt6k71.c
 )
