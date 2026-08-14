@@ -7,9 +7,21 @@
 
 #include <string.h>
 
-#define PMIC_I2C_ADDR 0x31
-#define PMIC_LIGHT_PWM1_REG 0x12
-#define PMIC_LED_CONTROL_REG 0x14
+#if defined(BOARD_HAS_PMIC_PMB6812)
+#include <pmic/PMB6812.h>
+/* Infineon PMB6812 (e.g. LG KE970, I2C address 0x08). */
+#define PMIC_I2C_ADDR PMB6812_I2C_ADDR
+#define PMIC_LIGHT_PWM1_REG PMB6812_LEDCTRL2
+#define PMIC_LED_CONTROL_REG PMB6812_LEDCTRL1
+#elif defined(BOARD_HAS_PMIC_D1094XX)
+#include <pmic/D1094XX.h>
+/* Dialog D1094xx (e.g. Siemens EL71, I2C address 0x31). */
+#define PMIC_I2C_ADDR D1094XX_I2C_ADDR
+#define PMIC_LIGHT_PWM1_REG D1094XX_LIGHT_PWM1
+#define PMIC_LED_CONTROL_REG D1094XX_LIGHT_CONTROL
+#else
+#error "i2c-v2 test: unsupported PMIC for this board"
+#endif
 #define I2C_STATUS_CLEAR 0x3F
 #define I2C_PROTOCOL_CLEAR 0x7F
 #define I2C_ERROR_CLEAR 0x0F
@@ -655,7 +667,8 @@ static void test_scan(void) {
 
 	printf("# found %u I2C device(s)\n", devices);
 	test_check("I2C scan completes", complete);
-	test_check("I2C scan finds PMIC at 0x31", pmic_found);
+	printf("# expected PMIC at 0x%02X\n", PMIC_I2C_ADDR);
+	test_check("I2C scan finds the PMIC", pmic_found);
 }
 
 static void test_fifo_alignment(void) {
