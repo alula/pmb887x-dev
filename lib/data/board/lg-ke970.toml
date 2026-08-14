@@ -1,9 +1,26 @@
 [board]
 vendor = "LG"
 model = "KE970"
-
 cpu.type = "pmb8876"
-cpu.rev = 0x10
+cpu.rev = 0x10 # newer units may have 0x11, LG firmware supports both even in V10a
+# cpu.rev = 0x11
+cpu.uid0 = 0x03157463
+cpu.uid1 = 0x18000283
+cpu.uid2 = 0x00090D0C
+
+[peripheral.LCD0]
+type = "r61505"
+bus = "DIF"
+width = 240
+height = 320
+rotation = 0
+bgr_filter = true
+in = { CS = "DIF_CS1", CD = "DIF_CD", WR = "DIF_WR", RESET = "DIF_RESET1" }
+
+[peripheral.SIM_CARD]
+type = "sim-card"
+bus = "SIM"
+in = { RST = "SIM:CC_RST" }
 
 [peripheral.FLASH0]
 type = "cfi-flash"
@@ -23,31 +40,20 @@ bus = "EBU"
 ebu.cs = 1
 ram.size = 0x2000000 # 32 MiB
 
-[peripheral.LCD0]
-type = "ili9320"
-bus = "DIF"
-width = 240
-height = 320
-rotation = 0
-# TODO: does IL200 have different bit meanings compared to ILI932x?
-flip_horizontal = true
-bgr_filter = true
-in = { CS = "DIF_CS1", CD = "DIF_CD", WR = "DIF_WR", RD = "DIF_RD", RESET = "DIF_RESET1" }
-
 [peripheral.PMIC]
 type = "pmb6812"
 bus = "I2C"
 addr = 0x08
+
+# [peripheral.RF]
+# type = "pmb6272"
+# bus = "TPU:RFSSC"
 
 [peripheral.AMP]
 type = "lm4946"
 bus = "I2C"
 addr = 0x7D
 
-[peripheral.SIM_CARD]
-type = "sim-card"
-bus = "SIM"
-in = { RST = "SIM:CC_RST" }
 
 [analog]
 # M0  BATT_TEMP Battery temperature measure
@@ -68,16 +74,16 @@ ram0_value = 0x0801
 [gpio.aliases]
 DIF_HD = "OPEN_CLOSE_SW1"
 MMCI_DAT1 = "OPEN_CLOSE_SW2"
+T_OUT9 = "LCD_BACKLIGHT"
+PIN110 = "RPWRON" # remote poweron
+PIN111 = "SPK_RCV_SEL"
 
 [gpio.inputs]
-
+# RPWRON = 1 # remote power on (test)
 # Slider
 OPEN_CLOSE_SW2 = 1
 
 [keyboard]
-# LG firmware requires this to be held at startup, otherwise it'll do a charger boot
-# poweron_key = "END_CALL"
-
 # [KP_IN, KP_OUT, ..., KP_OUT]
 SOFT_LEFT	= [0, 0]	# MENU
 NAV_CENTER	= [0, 1]	# OK
@@ -107,3 +113,17 @@ PTT         = [5, 3]    # shutter
 CAMERA		= [5, 4]	# KB_CAM (side / shutter)
 VOLUME_UP	= [2, 3]	# KB_UP
 VOLUME_DOWN	= [3, 3]	# KB_DOWN
+
+[keyboard.gpio]
+END_CALL = [{ target = "PMIC:ON" }]
+
+[startup.ONLINE]
+duration = 5
+keys = ["END_CALL"]
+
+[startup.PTEST]
+duration = 5
+keys = ["STAR", "END_CALL"] # unusually, LG phones don't care about HASH
+
+[startup.OFFLINE]
+keys = []

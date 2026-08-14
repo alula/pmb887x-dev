@@ -5,11 +5,30 @@ model = "KE800"
 cpu.type = "pmb8876"
 cpu.rev = 0x10
 
+[peripheral.LCD0]
+type = "r63400"
+bus = "DIF"
+width = 240
+height = 320
+rotation = 0
+in = { CS = "DIF_CS1", CD = "DIF_CD", WR = "DIF_WR", RESET = "DIF_RESET1" }
+
+[peripheral.SIM_CARD]
+type = "sim-card"
+bus = "SIM"
+in = { RST = "SIM:CC_RST" }
+
 [peripheral.FLASH0]
 type = "cfi-flash"
 bus = "EBU"
 ebu.cs = 0
-flash = { vid = 0x0089, pid = 0x88B0 }
+flash = { vid = 0x0089, pid = 0x88B0, size = 0x4000000 }
+
+[peripheral.FLASH1]
+type = "cfi-flash"
+bus = "EBU"
+ebu.cs = 2
+flash = { vid = 0x0089, pid = 0x88B0, size = 0x4000000 }
 
 [peripheral.SDRAM]
 type = "sdram"
@@ -17,28 +36,20 @@ bus = "EBU"
 ebu.cs = 1
 ram.size = 0x2000000 # 32 MiB
 
-[peripheral.LCD0]
-type = "r63400"
-bus = "DIF"
-width = 240
-height = 320
-rotation = 0
-in = { CS = "DIF_CS1", CD = "DIF_CD", WR = "DIF_WR", RD = "DIF_RD", RESET = "DIF_RESET1" }
-
 [peripheral.PMIC]
 type = "pmb6812"
 bus = "I2C"
 addr = 0x08
+
+# [peripheral.RF]
+# type = "pmb6272"
+# bus = "TPU:RFSSC"
 
 [peripheral.AMP]
 type = "lm4946"
 bus = "I2C"
 addr = 0x7D
 
-[peripheral.SIM_CARD]
-type = "sim-card"
-bus = "SIM"
-in = { RST = "SIM:CC_RST" }
 
 [analog]
 # M0  BATT_TEMP Battery temperature measure
@@ -66,9 +77,6 @@ MMCI_DAT1 = "OPEN_CLOSE_SW2"
 OPEN_CLOSE_SW2 = 1
 
 [keyboard]
-# LG firmware requires this to be held at startup, otherwise it'll do a charger boot
-# poweron_key = "END_CALL"
-
 # [KP_IN, KP_OUT, ..., KP_OUT]
 # SOFT_LEFT	= [0, 0]	# MENU
 # NAV_CENTER	= [0, 1]	# OK
@@ -98,3 +106,17 @@ HASH		= [4, 2]	# KB_SHA
 # CAMERA		= [5, 4]	# KB_CAM (side / shutter)
 # VOLUME_UP	= [2, 3]	# KB_UP
 # VOLUME_DOWN	= [3, 3]	# KB_DOWN
+
+[keyboard.gpio]
+END_CALL = [{ target = "PMIC:ON" }]
+
+[startup.ONLINE]
+duration = 5
+keys = ["END_CALL"]
+
+[startup.PTEST]
+duration = 5
+keys = ["STAR", "HASH", "END_CALL"]
+
+[startup.OFFLINE]
+keys = []

@@ -10,11 +10,11 @@
 #endif
 
 #ifdef BOARD_LG_KE800
-#include "board_lg_ke800.h"
+#include "board_lg_ke800.h" // IWYU pragma: export
 #endif
 
 #ifdef BOARD_LG_KE970
-#include "board_lg_ke970.h"
+#include "board_lg_ke970.h" // IWYU pragma: export
 #endif
 
 #ifdef BOARD_PANASONIC_705P

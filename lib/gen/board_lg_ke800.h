@@ -1,7 +1,16 @@
 #pragma once
-#include <stdint.h>
+// IWYU pragma: private, include <pmb887x.h>
 
 #define PMB8876
+
+// Peripherals
+#define	BOARD_HAS_AMP_LM4946		1
+#define	BOARD_HAS_FLASH0_CFI_FLASH	1
+#define	BOARD_HAS_FLASH1_CFI_FLASH	1
+#define	BOARD_HAS_LCD0_R63400		1
+#define	BOARD_HAS_PMIC_PMB6812		1
+#define	BOARD_HAS_SDRAM_SDRAM		1
+#define	BOARD_HAS_SIM_CARD_SIM_CARD	1
 
 // GPIO numbers
 #define	GPIO_OPEN_CLOSE_SW1	GPIO_DIF_HD

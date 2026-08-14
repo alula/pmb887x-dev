@@ -1,11 +1,23 @@
 #pragma once
-#include <stdint.h>
+// IWYU pragma: private, include <pmb887x.h>
 
 #define PMB8876
 
+// Peripherals
+#define	BOARD_HAS_AMP_LM4946		1
+#define	BOARD_HAS_FLASH0_CFI_FLASH	1
+#define	BOARD_HAS_FLASH1_CFI_FLASH	1
+#define	BOARD_HAS_LCD0_R61505		1
+#define	BOARD_HAS_PMIC_PMB6812		1
+#define	BOARD_HAS_SDRAM_SDRAM		1
+#define	BOARD_HAS_SIM_CARD_SIM_CARD	1
+
 // GPIO numbers
 #define	GPIO_OPEN_CLOSE_SW1	GPIO_DIF_HD
+#define	GPIO_LCD_BACKLIGHT	GPIO_T_OUT9
 #define	GPIO_OPEN_CLOSE_SW2	GPIO_MMCI_DAT1
+#define	GPIO_RPWRON			GPIO_PIN110
+#define	GPIO_SPK_RCV_SEL	GPIO_PIN111
 
 
 // Keypad
