@@ -45,9 +45,9 @@ type = "pmb6812"
 bus = "I2C"
 addr = 0x08
 
-# [peripheral.RF]
-# type = "pmb6272"
-# bus = "TPU:RFSSC"
+[peripheral.RF]
+type = "pmb6272"
+bus = "TPU:RFSSC"
 
 [peripheral.AMP]
 type = "lm4946"
@@ -65,23 +65,29 @@ addr = 0x7D
 # M10 REMOTE_ADC Remote control key detect
 M_0 = { type = "resistor", value = 9300 }
 M_7 = { type = "resistor", value = 14800 }
-M_8 = { type = "resistor_divider", r1 = 330000, r2 = 220000, value = 3700 }
+M_8 = { type = "resistor_divider", r1 = 390000, r2 = 100000, value = 4200 }
 M_9 = { type = "resistor", value = 15000 }
 
 [dsp]
 ram0_value = 0x0801
 
 [gpio.aliases]
-DIF_HD = "OPEN_CLOSE_SW1"
-MMCI_DAT1 = "OPEN_CLOSE_SW2"
+DIF_HD = "USB_CHG_EN"
 T_OUT9 = "LCD_BACKLIGHT"
+I2S2_WA1 = "SLIDE_KEY_BACKLIGHT"
+DSPOUT0 = "SCROLL_KEY_A"
+DSPOUT1 = "SCROLL_KEY_B"
+DSPIN0 = "BT_RESET"
+DSPIN1 = "SIM_EN"
 PIN110 = "RPWRON" # remote poweron
 PIN111 = "SPK_RCV_SEL"
+DIF_CS2 = "FM_BBP_SEL" # GPIO96: audio amp input select (low: baseband/EPPA, high: FM)
+USART1_RTS = "HSO_SEL"
+USART1_CTS = "AUDIO_AMP_EN"
+T_OUT12 = "AU_PWR_EN"
 
 [gpio.inputs]
-# RPWRON = 1 # remote power on (test)
-# Slider
-OPEN_CLOSE_SW2 = 1
+RPWRON = 1 # remote power on (skips power button hold requirement)
 
 [keyboard]
 # [KP_IN, KP_OUT, ..., KP_OUT]
