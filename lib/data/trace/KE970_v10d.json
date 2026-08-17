@@ -1,0 +1,52 @@
+[
+	/* Debug */
+	{
+		"name":		"__assert",
+		"addr":		0xA2129ED0,
+		"args":		["cstr", "uint32", "uint32"]
+	},
+	{
+		"name":		"emcpp_assert",
+		"addr":		0xA27F09D8,
+		"args":		["cstr", "uint32", "uint32", "cstr"]
+	},
+	{
+		"name":		"debug_out_cond",
+		"addr":		0xA1E05D1E,
+		"args":		["fmt"],
+	},
+	{
+		"name": 	"gprs_trace_0",
+		"addr":		0xA1ED90E0,
+		"args":		["uint32", "cstr", "uint32", "uint32"]
+	},
+	{
+		"name": 	"dwd_trace",
+		"addr":		0xA25D43DC,
+		"args":		["uint32", "cstr", "uint32"],
+		"skip":		true
+	},
+	{
+		"name":		"bora_trace",
+		"addr":		0xA1B239CE,
+		"args":		["fmt"]
+	},
+	{
+		"name": 	"apoxi_trace",
+		"addr":		0xA1EBB7A6,
+		"args":		["uint32", "cstr", "uint32"],
+		"skip":		true
+	},
+	{
+		"name":		"lg_mmi_trace",
+		"addr":		0xA248719C,
+		"args":		["fmt"]
+	},
+
+	{
+		"name":		"platform_panic",
+		"addr":		0xA1E05D56,
+		"args":		["cstr", "uint32", "uint32"]
+	},
+
+]
