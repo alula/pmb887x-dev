@@ -34,6 +34,8 @@ void lcd_board_enable_backlight(void) {
 #elif defined(BOARD_LG_KE970)
 
 void lcd_board_initialize_light(void) {
+	GPIO_PIN(GPIO_LCD_BACKLIGHT) = GPIO_OS_ALT2 | GPIO_DATA_LOW | GPIO_PS_ALT | GPIO_DIR_IN | GPIO_PPEN_PUSHPULL | GPIO_PDPU_NONE | GPIO_ENAQ_OFF;
+
 	CAPCOM_CLC(CAPCOM1) = 0x0100;
 }
 
