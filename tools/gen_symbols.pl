@@ -83,7 +83,7 @@ sub genModuleSymbols {
 	my $symbols = [];
 	for (my $i = 0; $i < $module->{size}; $i += 4) {
 		if ($gen_idc) {
-			push @$symbols, sprintf("\tMakeName(0x%08X, \"%s_%02X\");", $module->{base} + $i, $module->{name}, $i);
+			push @$symbols, sprintf("\tMakeName(0x%08X, \"%s_%02X\"); SetType(0x%08X, \"volatile unsigned int\");", $module->{base} + $i, $module->{name}, $i, $module->{base} + $i);
 		} else {
 			# push @$symbols, sprintf("%s_%02X %08X l", $module->{name}, $i, $module->{base} + $i);
 			push @$symbols, sprintf("D\t%08X\t%s_%02X\tunsigned int", $module->{base} + $i, $module->{name}, $i);
@@ -99,7 +99,7 @@ sub genModuleSymbols {
 				my $reg_name = sprintf("%s_%s%d", $module->{name}, $reg->{name}, $index);
 				$reg_name = $alt_names->{$i} if (exists $alt_names->{$i});
 				if ($gen_idc) {
-					$symbols->[$i / 4] = sprintf("\tMakeName(0x%08X, \"%s\");", $module->{base} + $i, $reg_name);
+					$symbols->[$i / 4] = sprintf("\tMakeName(0x%08X, \"%s\"); SetType(0x%08X, \"volatile unsigned int\");", $module->{base} + $i, $reg_name, $module->{base} + $i);
 				} else {
 					# $symbols->[$i / 4] = sprintf("%s %08X l", $reg_name, $module->{base} + $i);
 					$symbols->[$i / 4] = sprintf("D\t%08X\t%s\tunsigned int", $module->{base} + $i, $reg_name);
@@ -108,7 +108,7 @@ sub genModuleSymbols {
 			}
 		} else {
 			if ($gen_idc) {
-				$symbols->[$reg->{start} / 4] = sprintf("\tMakeName(0x%08X, \"%s_%s\");", $module->{base} + $reg->{start}, $module->{name}, $reg->{name});
+				$symbols->[$reg->{start} / 4] = sprintf("\tMakeName(0x%08X, \"%s_%s\"); SetType(0x%08X, \"volatile unsigned int\");", $module->{base} + $reg->{start}, $module->{name}, $reg->{name}, $module->{base} + $reg->{start});
 			} else {
 				# $symbols->[$reg->{start} / 4] = sprintf("%s_%s %08X l", $module->{name}, $reg->{name}, $module->{base} + $reg->{start});
 				$symbols->[$reg->{start} / 4] = sprintf("D\t%08X\t%s_%s\tunsigned int", $module->{base} + $reg->{start}, $module->{name}, $reg->{name});
