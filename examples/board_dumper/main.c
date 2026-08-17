@@ -1,6 +1,16 @@
 #include <pmb887x.h>
 #include <printf.h>
 
+#if defined(BOARD_HAS_PMIC_PMB6812)
+#include <pmic/PMB6812.h>
+#define PMIC_I2C_ADDR PMB6812_I2C_ADDR
+#elif defined(BOARD_HAS_PMIC_D1094XX)
+#include <pmic/D1094XX.h>
+#define PMIC_I2C_ADDR D1094XX_I2C_ADDR
+#else
+#error "unsupported PMIC for this board"
+#endif
+
 static void dump_cpu() {
 	printf("SCU_UID0=%08X\n", SCU_UID0);
 	printf("SCU_UID1=%08X\n", SCU_UID1);
@@ -23,8 +33,8 @@ static void dump_pmic(void) {
 	i2c_init();
 	printf("PMIC:");
 	for (int i = 0; i <= 0xFF; ++i) {
-		uint32_t v = i2c_smbus_read_byte(0x31, i);
-		printf(" 0x%02X,", i, v);
+		uint32_t v = i2c_smbus_read_byte(PMIC_I2C_ADDR, i);
+		printf(" 0x%02X,", v);
 		wdt_serve();
 	}
 	printf("\n");
