@@ -59,7 +59,7 @@ sub getCpus {
 	closedir $fp;
 	
 	my $cpus = [];
-	for my $file (@files) {
+	for my $file (sort { $b cmp $a } @files) {
 		next if !-f $path."/".$file;
 		next if $file !~ /^pmb.*?\.cfg$/i;
 		$file =~ s/\.cfg$//gi;
@@ -439,8 +439,8 @@ sub loadModules {
 	closedir $fp;
 	
 	my $uniq_modules_ids = {};
-	
-	for my $file (@files) {
+
+	for my $file (sort { $b cmp $a } @files) {
 		next if !-f "$path/$file";
 		
 		my $module = $self->parseModule("$path/$file");
