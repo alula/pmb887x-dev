@@ -179,6 +179,7 @@ enum fcch_tpu_phase {
 	FCCH_TPU_HOLD_FIRST,
 	FCCH_TPU_HOLD_SECOND,
 	FCCH_TPU_FINISH,
+	FCCH_TPU_RETRY_DELAY,
 	FCCH_TPU_REFINEMENT_PREPARE,
 	FCCH_TPU_REFINEMENT_START,
 	FCCH_TPU_REFINEMENT_WAIT_RESULT,
@@ -194,6 +195,7 @@ enum sch_scan_state {
 enum sch_tpu_phase {
 	SCH_TPU_RECEIVE,
 	SCH_TPU_RESULT_BOUNDARY,
+	SCH_TPU_RETRY_DELAY,
 };
 
 struct gsm_scan_range {
@@ -941,11 +943,16 @@ static void publish_next_fcch_frame(uint32_t bank) {
 					break;
 
 				default:
-					fcch_tpu_phase = FCCH_TPU_PREPARE_SECOND;
-					fcch_scan_state = FCCH_SCAN_COMMAND_REQUESTED;
-					publish_fcch_frame(bank, TPU_FCCH_PREPARE_EVENT_GROUPS);
+					fcch_tpu_phase = FCCH_TPU_RETRY_DELAY;
+					publish_idle_frame(bank);
 					break;
 			}
+			return;
+
+		case FCCH_TPU_RETRY_DELAY:
+			fcch_tpu_phase = FCCH_TPU_PREPARE_SECOND;
+			fcch_scan_state = FCCH_SCAN_COMMAND_REQUESTED;
+			publish_fcch_frame(bank, TPU_FCCH_PREPARE_EVENT_GROUPS);
 			return;
 	}
 }
@@ -965,13 +972,18 @@ static void publish_next_sch_frame(uint32_t bank) {
 
 		case SCH_TPU_RESULT_BOUNDARY:
 			if (!collect_sch_result()) {
-				tpu_loop_phase = TPU_LOOP_FCCH;
-				fcch_scan_state = FCCH_SCAN_REFINEMENT_COMMAND_REQUESTED;
-				fcch_tpu_phase = FCCH_TPU_REFINEMENT_PREPARE;
-				publish_fcch_frame(bank, TPU_FCCH_HOLD_EVENT_GROUPS);
+				sch_tpu_phase = SCH_TPU_RETRY_DELAY;
+				publish_idle_frame(bank);
 				return;
 			}
 			sch_scan_complete(bank);
+			return;
+
+		case SCH_TPU_RETRY_DELAY:
+			tpu_loop_phase = TPU_LOOP_FCCH;
+			fcch_scan_state = FCCH_SCAN_REFINEMENT_COMMAND_REQUESTED;
+			fcch_tpu_phase = FCCH_TPU_REFINEMENT_PREPARE;
+			publish_fcch_frame(bank, TPU_FCCH_HOLD_EVENT_GROUPS);
 			return;
 	}
 }
