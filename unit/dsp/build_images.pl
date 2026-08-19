@@ -27,6 +27,7 @@ my @images = (
 	[ 'timers-functional.asm', 'timers-functional-8876.inc', 'DSP_TIMERS_IMAGE_8876', 'pmb8876' ],
 	[ 'mcs-functional.asm', 'mcs-functional-8875.inc', 'DSP_MCS_IMAGE_8875', 'pmb8875' ],
 	[ 'mcs-functional.asm', 'mcs-functional-8876.inc', 'DSP_MCS_IMAGE_8876', 'pmb8876' ],
+	[ 'delay-slot-functional.asm', 'delay-slot-functional-8876.inc', 'DSP_DELAY_SLOT_IMAGE_8876', 'pmb8876' ],
 	[ 'interrupt-functional.asm', 'interrupt-functional-8875.inc', 'DSP_INTERRUPT_IMAGE_8875', 'pmb8875' ],
 	[ 'interrupt-functional.asm', 'interrupt-functional-8876.inc', 'DSP_INTERRUPT_IMAGE_8876', 'pmb8876' ],
 	[ 'interrupt-sources-a0.asm', 'interrupt-sources-a0-8876.inc', 'DSP_INTERRUPT_SOURCES_A0_8876', 'pmb8876' ],
