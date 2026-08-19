@@ -14,7 +14,7 @@ static void tpu_configure_clock(uint32_t rmc, uint32_t k, uint32_t l) {
 	TPU_GSMCLK3 = TPU_GSMCLK3_LOAD | TPU_GSMCLK3_INIT;
 }
 
-static bool wait_compare_request(unsigned int index) {
+static bool wait_compare_request(uint32_t index) {
 	stopwatch_t start = stopwatch_get();
 
 	while ((TPU_SRC(index) & MOD_SRC_SRR) == 0 && stopwatch_elapsed_ms(start) < TPU_TIMEOUT_MS)
@@ -36,6 +36,15 @@ static uint32_t measure_wrap_us(void) {
 	}
 
 	return 0;
+}
+
+static bool wait_counter_at_least(uint32_t value) {
+	stopwatch_t start = stopwatch_get();
+
+	while (TPU_COUNTER < value && stopwatch_elapsed_ms(start) < TPU_TIMEOUT_MS)
+		test_watchdog_serve();
+
+	return TPU_COUNTER >= value;
 }
 
 static bool frequency_matches(uint32_t actual, uint32_t expected) {
@@ -107,19 +116,15 @@ static void test_clock(void) {
 	uint32_t multiplied_fractional = measure_frequency(1, 2, 4);
 	printf(
 		"# counter: base %u Hz, RMC/2 %u Hz, L/2 %u Hz, K*2 %u Hz\n",
-		(unsigned int) base,
-		(unsigned int) divided_rmc,
-		(unsigned int) divided_fractional,
-		(unsigned int) multiplied_fractional
+		(uint32_t) base,
+		(uint32_t) divided_rmc,
+		(uint32_t) divided_fractional,
+		(uint32_t) multiplied_fractional
 	);
 	test_check("K/L divider produces GSM counter clock", frequency_matches(base, TPU_COUNTER_FREQUENCY));
 	test_check("RMC divides counter clock", frequency_matches(divided_rmc, TPU_COUNTER_FREQUENCY / 2));
-	test_check("fractional denominator divides counter clock", frequency_matches(
-		divided_fractional, TPU_COUNTER_FREQUENCY / 2
-	));
-	test_check("fractional numerator multiplies counter clock", frequency_matches(
-		multiplied_fractional, TPU_COUNTER_FREQUENCY
-	));
+	test_check("fractional denominator divides counter clock", frequency_matches(divided_fractional, TPU_COUNTER_FREQUENCY / 2));
+	test_check("fractional numerator multiplies counter clock", frequency_matches(multiplied_fractional, TPU_COUNTER_FREQUENCY));
 	test_eq_u32("GSMCLK LOAD and INIT are self-clearing", 0, TPU_GSMCLK3);
 
 	TPU_PARAM = 0;
@@ -133,9 +138,9 @@ static void test_clock(void) {
 	uint32_t after_load = measure_running_frequency();
 	printf(
 		"# clock update: active %u Hz, without LOAD %u Hz, after LOAD %u Hz\n",
-		(unsigned int) active,
-		(unsigned int) before_load,
-		(unsigned int) after_load
+		(uint32_t) active,
+		(uint32_t) before_load,
+		(uint32_t) after_load
 	);
 	test_check("K/L write without LOAD keeps old clock", frequency_matches(before_load, active));
 	test_check("LOAD activates new K/L clock", frequency_matches(after_load, active * 2));
@@ -161,27 +166,108 @@ static void test_correction(void) {
 	tpu_configure_clock(1, 1, 32);
 	TPU_OVERFLOW = 999;
 	TPU_OFFSET = 0;
+
 	TPU_PARAM = TPU_PARAM_TINI | TPU_PARAM_FDIS;
-	TPU_CORRECTION = 199;
+	bool reached_single_early = wait_counter_at_least(100);
+	uint32_t first_write_counter = TPU_COUNTER;
+	TPU_CORRECTION = 699;
 	uint32_t corrected_current = measure_wrap_us();
 	uint32_t regular_after = measure_wrap_us();
 	printf(
-		"# correction CTRL=0: current %u us, following %u us\n",
-		(unsigned int) corrected_current,
-		(unsigned int) regular_after
+		"# correction CTRL=0 above counter: write_counter=%u,current_tail_us=%u,following_us=%u\n",
+		(uint32_t) first_write_counter,
+		(uint32_t) corrected_current,
+		(uint32_t) regular_after
 	);
-	test_check("CTRL=0 corrects current frame", corrected_current >= 1000 && corrected_current <= 2500);
+	test_check("counter reaches the single early correction write point", reached_single_early);
+	test_check("CTRL=0 corrects the current frame", corrected_current >= 3000 && corrected_current <= 5500);
 	test_check("regular overflow follows current correction", regular_after >= 6000 && regular_after <= 9000);
+
+	TPU_PARAM = 0;
+	TPU_PARAM = TPU_PARAM_TINI | TPU_PARAM_FDIS;
+	bool reached_first_early = wait_counter_at_least(100);
+	first_write_counter = TPU_COUNTER;
+	TPU_CORRECTION = 699;
+	bool reached_second_early = wait_counter_at_least(200);
+	uint32_t second_write_counter = TPU_COUNTER;
+	TPU_CORRECTION = 299;
+	uint32_t correction_after_second_write = TPU_CORRECTION;
+	corrected_current = measure_wrap_us();
+	regular_after = measure_wrap_us();
+	bool first_correction_kept = corrected_current >= 2500 && corrected_current <= 5000;
+	printf(
+		"# correction CTRL=0 active rewrite: first_counter=%u,second_counter=%u,readback=%u,current_tail_us=%u,following_us=%u\n",
+		(uint32_t) first_write_counter,
+		(uint32_t) second_write_counter,
+		(uint32_t) correction_after_second_write,
+		(uint32_t) corrected_current,
+		(uint32_t) regular_after
+	);
+	test_check("counter reaches the first early correction write point", reached_first_early);
+	test_check("counter reaches the second early correction write point", reached_second_early);
+	test_eq_u32("active current-frame correction rejects a second value", 699,
+		correction_after_second_write & TPU_CORRECTION_VALUE);
+	test_check("active current-frame correction keeps the first overflow", first_correction_kept);
+	test_check("regular overflow follows rewritten current correction", regular_after >= 6000 && regular_after <= 9000);
+
+	TPU_PARAM = 0;
+	TPU_PARAM = TPU_PARAM_TINI | TPU_PARAM_FDIS;
+	bool reached_single_late = wait_counter_at_least(700);
+	first_write_counter = TPU_COUNTER;
+	TPU_CORRECTION = 199;
+	uint32_t regular_tail = measure_wrap_us();
+	uint32_t corrected_next = measure_wrap_us();
+	regular_after = measure_wrap_us();
+	printf(
+		"# correction CTRL=0 below counter: write_counter=%u,current_tail_us=%u,next_us=%u,following_us=%u\n",
+		(uint32_t) first_write_counter,
+		(uint32_t) regular_tail,
+		(uint32_t) corrected_next,
+		(uint32_t) regular_after
+	);
+	test_check("counter reaches the single late correction write point", reached_single_late);
+	test_check("CTRL=0 keeps the current frame when correction is below the counter",
+		regular_tail >= 1000 && regular_tail <= 3500);
+	test_check("CTRL=0 corrects the following frame", corrected_next >= 1000 && corrected_next <= 2500);
+	test_check("regular overflow follows delayed correction", regular_after >= 6000 && regular_after <= 9000);
+
+	TPU_PARAM = 0;
+	TPU_PARAM = TPU_PARAM_TINI | TPU_PARAM_FDIS;
+	bool reached_late_rewrite = wait_counter_at_least(700);
+	first_write_counter = TPU_COUNTER;
+	TPU_CORRECTION = 199;
+	regular_tail = measure_wrap_us();
+	bool reached_corrected_frame = wait_counter_at_least(50);
+	second_write_counter = TPU_COUNTER;
+	TPU_CORRECTION = 399;
+	correction_after_second_write = TPU_CORRECTION;
+	corrected_next = measure_wrap_us();
+	regular_after = measure_wrap_us();
+	printf(
+		"# correction CTRL=0 delayed rewrite: first_counter=%u,current_tail_us=%u,second_counter=%u,readback=%u,next_tail_us=%u,following_us=%u\n",
+		(uint32_t) first_write_counter,
+		(uint32_t) regular_tail,
+		(uint32_t) second_write_counter,
+		(uint32_t) correction_after_second_write,
+		(uint32_t) corrected_next,
+		(uint32_t) regular_after
+	);
+	test_check("counter reaches the late correction rewrite point", reached_late_rewrite);
+	test_check("counter enters the active corrected frame", reached_corrected_frame);
+	test_eq_u32("active delayed correction rejects a second value", 199,
+		correction_after_second_write & TPU_CORRECTION_VALUE);
+	test_check("active delayed correction keeps the first overflow", corrected_next >= 500 && corrected_next <= 1800);
+	test_check("regular overflow follows the delayed rewrite", regular_after >= 6000 && regular_after <= 9000);
 
 	TPU_PARAM = 0;
 	TPU_PARAM = TPU_PARAM_TINI | TPU_PARAM_FDIS;
 	TPU_CORRECTION = TPU_CORRECTION_CTRL | 199;
 	uint32_t regular_current = measure_wrap_us();
-	uint32_t corrected_next = measure_wrap_us();
+	corrected_next = measure_wrap_us();
 	printf(
 		"# correction CTRL=1: current %u us, next %u us\n",
-		(unsigned int) regular_current,
-		(unsigned int) corrected_next
+		(uint32_t) regular_current,
+		(uint32_t) corrected_next
 	);
 	test_check("CTRL=1 keeps current frame regular", regular_current >= 6000 && regular_current <= 9000);
 	test_check("CTRL=1 corrects next frame", corrected_next >= 1000 && corrected_next <= 2500);
@@ -200,8 +286,8 @@ static void test_offset(void) {
 	uint32_t following_frame = measure_wrap_us();
 	printf(
 		"# offset CTRL=0: first reset %u us, following %u us\n",
-		(unsigned int) direct_offset,
-		(unsigned int) following_frame
+		(uint32_t) direct_offset,
+		(uint32_t) following_frame
 	);
 	test_check("CTRL=0 applies offset in current frame", direct_offset >= 1000 && direct_offset <= 2500);
 	test_check("offset reset repeats every frame", following_frame >= 6000 && following_frame <= 9000);
@@ -215,14 +301,13 @@ static void test_offset(void) {
 	uint32_t delayed_offset = measure_wrap_us();
 	printf(
 		"# offset CTRL=1: current %u us, next %u us, delayed reset %u us\n",
-		(unsigned int) regular_current,
-		(unsigned int) regular_before_offset,
-		(unsigned int) delayed_offset
+		(uint32_t) regular_current,
+		(uint32_t) regular_before_offset,
+		(uint32_t) delayed_offset
 	);
+	bool regular_period_preserved = regular_before_offset >= 6000 && regular_before_offset <= 9000;
 	test_check("CTRL=1 shifts reset phase after overflow", regular_current >= 8000 && regular_current <= 10000);
-	test_check("shifted offset keeps regular frame period", (
-		regular_before_offset >= 6000 && regular_before_offset <= 9000
-	));
+	test_check("shifted offset keeps regular frame period", regular_period_preserved);
 	test_check("shifted offset remains periodic", delayed_offset >= 6000 && delayed_offset <= 9000);
 	TPU_PARAM = 0;
 }
@@ -241,8 +326,8 @@ static void test_frame_skip(void) {
 	uint32_t skipped_period = measure_wrap_us();
 	printf(
 		"# frame skip: validation %u us, skipped reset %u us\n",
-		(unsigned int) validation_period,
-		(unsigned int) skipped_period
+		(uint32_t) validation_period,
+		(uint32_t) skipped_period
 	);
 	test_check("SKIPN is validated after one frame", validation_period >= 6000 && validation_period <= 9000);
 	test_check("SKIPN skips one CTDMA reset", skipped_period >= 13000 && skipped_period <= 17000);
