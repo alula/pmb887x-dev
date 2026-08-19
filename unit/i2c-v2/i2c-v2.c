@@ -28,6 +28,7 @@
 #define I2C_DMA_TX_CHANNEL 0
 #define I2C_DMA_RX_CHANNEL 1
 #define I2C_DMA_TIMEOUT_MS 100
+#define I2C_READ_COMPLETION_STATUS (I2C_PIRQSS_RX | I2C_PIRQSS_TX_END)
 
 static i2c_v2_result_t smbus_read(uint8_t reg, uint8_t *data, uint32_t size) {
 	return i2c_v2_smbus_read(PMIC_I2C_ADDR, reg, data, size);
@@ -37,8 +38,17 @@ static i2c_v2_result_t smbus_write(uint8_t reg, uint8_t value) {
 	return i2c_v2_smbus_write(PMIC_I2C_ADDR, reg, value);
 }
 
-static i2c_v2_result_t smbus_read_repeated_start(uint8_t reg, uint8_t *data, uint32_t size,
-	bool *bus_was_held) {
+static void wait_for_bus_free(void) {
+	stopwatch_t start = stopwatch_get();
+
+	while ((I2C_BUSSTAT & I2C_BUSSTAT_BS) != I2C_BUSSTAT_BS_FREE) {
+		if (stopwatch_elapsed_ms(start) >= I2C_DMA_TIMEOUT_MS)
+			return;
+		test_watchdog_serve();
+	}
+}
+
+static i2c_v2_result_t smbus_read_repeated_start(uint8_t reg, uint8_t *data, uint32_t size, bool *bus_was_held) {
 	I2C_RUNCTRL = 0;
 	I2C_ADDRCFG &= ~I2C_ADDRCFG_SOPE;
 	I2C_RUNCTRL = I2C_RUNCTRL_RUN;
@@ -52,16 +62,55 @@ static i2c_v2_result_t smbus_read_repeated_start(uint8_t reg, uint8_t *data, uin
 		result = i2c_v2_transfer_bytes_running(PMIC_I2C_ADDR, NULL, data, size);
 
 	I2C_ENDDCTRL = I2C_ENDDCTRL_SETEND;
-	stopwatch_t start = stopwatch_get();
-	while ((I2C_BUSSTAT & I2C_BUSSTAT_BS) != I2C_BUSSTAT_BS_FREE &&
-		stopwatch_elapsed_ms(start) < I2C_DMA_TIMEOUT_MS)
-		test_watchdog_serve();
+	wait_for_bus_free();
 
 	I2C_RUNCTRL = 0;
 	I2C_ADDRCFG |= I2C_ADDRCFG_SOPE;
 	I2C_RUNCTRL = I2C_RUNCTRL_RUN;
 
 	return result;
+}
+
+static uint32_t read_polled_protocol_status(void) {
+	cpu_enable_irq(false);
+	I2C_RUNCTRL = 0;
+	I2C_ADDRCFG &= ~I2C_ADDRCFG_SOPE;
+	I2C_FIFOCFG = I2C_FIFOCFG_RXBS_4_WORD | I2C_FIFOCFG_TXBS_4_WORD | I2C_FIFOCFG_RXFC | I2C_FIFOCFG_TXFC;
+	I2C_RUNCTRL = I2C_RUNCTRL_RUN;
+	I2C_IMSC = 0;
+	I2C_ICR = I2C_STATUS_CLEAR;
+	I2C_PIRQSC = I2C_PROTOCOL_CLEAR;
+	I2C_ERRIRQSC = I2C_ERROR_CLEAR;
+	I2C_MRPSCTRL = 1;
+	I2C_TPSCTRL = 1;
+	I2C_TXD = (PMIC_I2C_ADDR << 1) | 1;
+
+	stopwatch_t start = stopwatch_get();
+	uint32_t status;
+	while (true) {
+		status = I2C_PIRQSS;
+		if ((status & I2C_READ_COMPLETION_STATUS) == I2C_READ_COMPLETION_STATUS)
+			break;
+		if ((status & I2C_PIRQSS_NACK) != 0)
+			break;
+		if (stopwatch_elapsed_ms(start) >= I2C_DMA_TIMEOUT_MS)
+			break;
+		test_watchdog_serve();
+	}
+
+	I2C_ENDDCTRL = I2C_ENDDCTRL_SETEND;
+	wait_for_bus_free();
+	while ((I2C_FFSSTAT & I2C_FFSSTAT_FFS) != 0)
+		(void) I2C_RXD;
+	I2C_ICR = I2C_STATUS_CLEAR;
+	I2C_PIRQSC = I2C_PROTOCOL_CLEAR;
+	I2C_ERRIRQSC = I2C_ERROR_CLEAR;
+	I2C_RUNCTRL = 0;
+	I2C_ADDRCFG |= I2C_ADDRCFG_SOPE;
+	I2C_RUNCTRL = I2C_RUNCTRL_RUN;
+	cpu_enable_irq(true);
+
+	return status;
 }
 
 static i2c_v2_result_t dma_smbus_read(uint8_t reg, uint8_t *data, uint32_t size) {
@@ -202,6 +251,18 @@ static void test_repeated_start(void) {
 		"combined SMBus read releases the bus",
 		I2C_BUSSTAT_BS_FREE,
 		I2C_BUSSTAT & I2C_BUSSTAT_BS
+	);
+}
+
+static void test_polled_protocol_status(void) {
+	uint32_t status = read_polled_protocol_status();
+
+	printf("# polled read protocol status: %02X\n", status);
+	test_check("polled PMIC read is acknowledged", (status & I2C_PIRQSS_NACK) == 0);
+	test_eq_u32(
+		"completed polled read keeps RX asserted with TX_END",
+		I2C_READ_COMPLETION_STATUS,
+		status & I2C_READ_COMPLETION_STATUS
 	);
 }
 
@@ -497,6 +558,8 @@ int i2c_v2_test(void) {
 	test_pmic();
 	test_category("Repeated START");
 	test_repeated_start();
+	test_category("Polled protocol status");
+	test_polled_protocol_status();
 	test_category("Packet sizes");
 	test_packet_sizes();
 	test_category("PMIC register dump");
