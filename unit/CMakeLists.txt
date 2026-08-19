@@ -75,6 +75,7 @@ add_peripheral_test(dsp-channel-decoder-functional dsp/channel-decoder-functiona
 add_peripheral_test(dsp-channel-decoder-vectors dsp/channel-decoder-vectors.c dsp/dsp-hw.c)
 add_peripheral_test(dsp-equalizer-functional dsp/equalizer-functional.c dsp/dsp-hw.c)
 add_peripheral_test(dsp-equalizer-vectors dsp/equalizer-vectors.c dsp/dsp-hw.c)
+add_peripheral_test(dsp-equalizer-gmsk-vectors dsp/equalizer-gmsk-vectors.c dsp/dsp-hw.c)
 add_peripheral_test(dsp-equalizer-output dsp/equalizer-output.c dsp/dsp-hw.c)
 add_peripheral_test(dsp-equalizer-burst dsp/equalizer-burst.c dsp/dsp-hw.c)
 foreach(I2S_INSTANCE RANGE 1 3)

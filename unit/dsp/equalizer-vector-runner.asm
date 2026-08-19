@@ -123,8 +123,7 @@ mov 0x$003F r1
 call 0x0000$0880 always
 
 // Prove that later soft-output changes came from processing, not stale RAM.
-mov 0x$2801 a0l
-mov a0l [0x$TEAK_EQ_CONF2]
+call 0x0000$08A0 always
 mov 0x$0010 a0l
 mov a0l [0x$TEAK_EQ_CONF1]
 nop
@@ -353,14 +352,14 @@ mov [0x$TEAK_ADDR(TEAK_SHARED_RAM_BASE, 0x0004)] a0
 and 0x$0400 a0
 br 0x0000$08B0 eq
 mov [0x$TEAK_ADDR(TEAK_SHARED_RAM_BASE, 0x0004)] a0
-and 0x$0600 a0
+and 0x$C600 a0
 or 0x$0801 a0
 mov a0l [0x$TEAK_EQ_CONF2]
 ret always
 
 segment p 08B0
 mov [0x$TEAK_ADDR(TEAK_SHARED_RAM_BASE, 0x0004)] a0
-and 0x$0600 a0
+and 0x$C600 a0
 or 0x$2801 a0
 mov a0l [0x$TEAK_EQ_CONF2]
 ret always
@@ -461,8 +460,7 @@ nop
 mov 0x$TEAK_ADDR(TEAK_SHARED_RAM_BASE, 0x0750) r0
 mov 0x$001F r1
 call 0x0000$0820 always
-mov 0x$2801 a0l
-mov a0l [0x$TEAK_EQ_CONF2]
+call 0x0000$08A0 always
 mov 0x$0010 a0l
 mov a0l [0x$TEAK_EQ_CONF1]
 nop
@@ -482,5 +480,57 @@ nop
 nop
 mov 0x$TEAK_ADDR(TEAK_SHARED_RAM_BASE, 0x0790) r0
 mov 0x$000F r1
+call 0x0000$0820 always
+
+// Continue to a third cumulative timestamp target without RES_EQ.
+mov 0x$0200 a0l
+mov a0l [0x$TEAK_INT_RINTA0]
+
+mov 0x$1001 a0l
+mov a0l [0x$TEAK_EQ_CONF2]
+mov 0x$0008 a0l
+mov a0l [0x$TEAK_EQ_CONF1]
+mov 0x$TEAK_ADDR(TEAK_SHARED_RAM_BASE, 0x0800) r0
+mov 0x$007F r1
+call 0x0000$0800 always
+mov 0x$0004 a0l
+mov a0l [0x$TEAK_EQ_CONF1]
+mov 0x$TEAK_ADDR(TEAK_SHARED_RAM_BASE, 0x0880) r0
+mov 0x$003F r1
+call 0x0000$0800 always
+
+mov [0x$TEAK_ADDR(TEAK_SHARED_RAM_BASE, 0x000B)] a0
+mov a0l [0x$TEAK_EQ_CONF_CNT]
+mov [0x$TEAK_ADDR(TEAK_SHARED_RAM_BASE, 0x000D)] a0
+mov a0l [0x$TEAK_EQ_SC_SOUT]
+mov [0x$TEAK_ADDR(TEAK_SHARED_RAM_BASE, 0x000C)] a0
+or 0x$0005 a0
+mov a0l [0x$TEAK_EQ_CONF2]
+call 0x0000$0840 always
+mov [0x$TEAK_EQ_STATUS] a0
+mov a0l [0x$TEAK_ADDR(TEAK_SHARED_RAM_BASE, 0x0900)]
+mov [0x$TEAK_EQ_STAT_CNT] a0
+mov a0l [0x$TEAK_ADDR(TEAK_SHARED_RAM_BASE, 0x0901)]
+
+mov 0x$0801 a0l
+mov a0l [0x$TEAK_EQ_CONF2]
+mov 0x$0020 a0l
+mov a0l [0x$TEAK_EQ_CONF1]
+nop
+nop
+nop
+nop
+mov 0x$TEAK_ADDR(TEAK_SHARED_RAM_BASE, 0x0910) r0
+mov 0x$001F r1
+call 0x0000$0820 always
+call 0x0000$08A0 always
+mov 0x$0010 a0l
+mov a0l [0x$TEAK_EQ_CONF1]
+nop
+nop
+nop
+nop
+mov 0x$TEAK_ADDR(TEAK_SHARED_RAM_BASE, 0x0930) r0
+mov 0x$001F r1
 call 0x0000$0820 always
 ret always
