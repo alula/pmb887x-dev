@@ -44,16 +44,25 @@ static const struct lcd_packed_bsconf_profile {
 	const char *name;
 	uint32_t value;
 	uint32_t word_bits;
-	uint32_t polling_words;
-	uint32_t tps_words;
+	uint32_t lane_words;
 } LCD_PACKED_BSCONF_PROFILES[] = {
-	{ "1x8", DIF_CSREG_BSCONF_1x8BIT, 8, 1, 1 },
-	{ "2x8", DIF_CSREG_BSCONF_2x8BIT, 8, 2, 2 },
-	{ "3x8", DIF_CSREG_BSCONF_3x8BIT, 8, 3, 3 },
-	{ "4x8", DIF_CSREG_BSCONF_4x8BIT, 8, 4, 4 },
-	{ "1x9", DIF_CSREG_BSCONF_1x9BIT, 9, 1, 1 },
-	{ "2x9", DIF_CSREG_BSCONF_2x9BIT, 9, 1, 1 },
-	{ "3x9", DIF_CSREG_BSCONF_3x9BIT, 9, 1, 1 },
+	{ "1x8", DIF_CSREG_BSCONF_1x8BIT, 8, 1 },
+	{ "2x8", DIF_CSREG_BSCONF_2x8BIT, 8, 2 },
+	{ "3x8", DIF_CSREG_BSCONF_3x8BIT, 8, 3 },
+	{ "4x8", DIF_CSREG_BSCONF_4x8BIT, 8, 4 },
+	{ "1x9", DIF_CSREG_BSCONF_1x9BIT, 9, 1 },
+	{ "2x9", DIF_CSREG_BSCONF_2x9BIT, 9, 1 },
+	{ "3x9", DIF_CSREG_BSCONF_3x9BIT, 9, 1 },
+};
+
+static const struct lcd_txfa_profile {
+	const char *name;
+	uint32_t value;
+	uint32_t align;
+} LCD_TXFA_PROFILES[] = {
+	{ "4", DIF_TXFIFO_CFG_TXFA_4, 4 },
+	{ "2", DIF_TXFIFO_CFG_TXFA_2, 2 },
+	{ "1", DIF_TXFIFO_CFG_TXFA_1, 1 },
 };
 
 static uint32_t lcd_command_bsconf = DIF_CSREG_BSCONF_1x8BIT;
@@ -163,10 +172,29 @@ static bool dif_write_word(bool command, uint32_t value) {
 	return dif_wait_idle();
 }
 
-static bool dif_write_packed(bool command, uint32_t bsconf, uint32_t value, bool use_tps) {
+static bool packed_words_fit_alignment(const struct lcd_packed_bsconf_profile *profile, uint32_t align) {
+	return profile->word_bits * profile->lane_words <= align * 8;
+}
+
+static uint32_t packed_words_per_write(const struct lcd_packed_bsconf_profile *profile, uint32_t align) {
+	return (4 / align) * profile->lane_words;
+}
+
+static bool dif_set_tx_alignment(uint32_t txfa) {
 	if (!dif_wait_idle())
 		return false;
 	DIF_RUNCTRL = 0;
+	DIF_TXFIFO_CFG = DIF_TXFIFO_CFG_TXBS_8_WORD | txfa | DIF_TXFIFO_CFG_TXFC;
+	DIF_RUNCTRL = DIF_RUNCTRL_RUN;
+
+	return true;
+}
+
+static bool dif_write_packed(bool command, uint32_t bsconf, uint32_t txfa, uint32_t value, bool use_tps) {
+	if (!dif_wait_idle())
+		return false;
+	DIF_RUNCTRL = 0;
+	DIF_TXFIFO_CFG = DIF_TXFIFO_CFG_TXBS_8_WORD | txfa | DIF_TXFIFO_CFG_TXFC;
 	DIF_CSREG = DIF_CSREG_CS1 | bsconf | (command ? DIF_CSREG_CD : 0);
 	DIF_RUNCTRL = DIF_RUNCTRL_RUN;
 	DIF_TXD = value;
@@ -178,6 +206,7 @@ static bool dif_write_packed(bool command, uint32_t bsconf, uint32_t value, bool
 
 static uint32_t pack_words(
 	const struct lcd_packed_bsconf_profile *profile,
+	uint32_t align,
 	uint32_t word_count,
 	uint32_t offset,
 	const uint16_t *pattern,
@@ -187,8 +216,10 @@ static uint32_t pack_words(
 
 	for (uint32_t word = 0; word < word_count; word++) {
 		uint32_t bus_word = pattern[(offset + word) % pattern_size];
+		uint32_t lane = word / profile->lane_words;
+		uint32_t shift = lane * align * 8 + (word % profile->lane_words) * profile->word_bits;
 
-		value |= bus_word << (word * profile->word_bits);
+		value |= bus_word << shift;
 	}
 
 	return value;
@@ -197,12 +228,13 @@ static uint32_t pack_words(
 static bool dif_write_pattern_stream(
 	bool command,
 	const struct lcd_packed_bsconf_profile *profile,
+	const struct lcd_txfa_profile *txfa,
 	bool use_tps,
 	const uint16_t *pattern,
 	uint32_t pattern_size,
 	uint32_t *stream_words
 ) {
-	uint32_t words_per_write = use_tps ? profile->tps_words : profile->polling_words;
+	uint32_t words_per_write = packed_words_per_write(profile, txfa->align);
 	uint32_t writes = 1;
 	bool success = true;
 
@@ -210,31 +242,34 @@ static bool dif_write_pattern_stream(
 		writes++;
 	for (uint32_t write = 0; write < writes; write++) {
 		uint32_t offset = write * words_per_write;
-		uint32_t value = pack_words(profile, words_per_write, offset, pattern, pattern_size);
+		uint32_t value = pack_words(profile, txfa->align, words_per_write, offset, pattern, pattern_size);
 
-		success &= dif_write_packed(command, profile->value, value, use_tps);
+		success &= dif_write_packed(command, profile->value, txfa->value, value, use_tps);
 	}
 	*stream_words = words_per_write * writes;
+	success &= dif_set_tx_alignment(DIF_TXFIFO_CFG_TXFA_4);
 
 	return success;
 }
 
 static bool dif_write_pattern_row(
 	const struct lcd_packed_bsconf_profile *profile,
+	const struct lcd_txfa_profile *txfa,
 	bool use_tps,
 	const uint16_t *pattern,
 	uint32_t pattern_size
 ) {
-	uint32_t words_per_write = use_tps ? profile->tps_words : profile->polling_words;
+	uint32_t words_per_write = packed_words_per_write(profile, txfa->align);
 	bool success = true;
 
 	for (uint32_t offset = 0; offset < lcd->width * 2; offset += words_per_write) {
-		uint32_t value = pack_words(profile, words_per_write, offset, pattern, pattern_size);
+		uint32_t value = pack_words(profile, txfa->align, words_per_write, offset, pattern, pattern_size);
 
-		success &= dif_write_packed(false, profile->value, value, use_tps);
+		success &= dif_write_packed(false, profile->value, txfa->value, value, use_tps);
 		if ((offset & 0xFF) == 0)
 			test_watchdog_serve();
 	}
+	success &= dif_set_tx_alignment(DIF_TXFIFO_CFG_TXFA_4);
 
 	return success;
 }
@@ -773,66 +808,83 @@ int main(void) {
 		bool use_tps = tps != 0;
 
 		test_category(use_tps ? "TPS-packed command BSCONF writes" : "Polling-packed command BSCONF writes");
-		for (uint32_t i = 0; i < ARRAY_SIZE(LCD_PACKED_BSCONF_PROFILES); i++) {
-			const struct lcd_packed_bsconf_profile *profile = &LCD_PACKED_BSCONF_PROFILES[i];
-			uint16_t command_words[ARRAY_SIZE(lcd->gram_write_command)] = { 0 };
-			uint32_t stream_words = 0;
-			uint16_t pixel = 0;
-			for (uint32_t byte = 0; byte < lcd->gram_write_command_size; byte++) {
-				command_words[byte] = lcd->gram_write_command[byte] |
-					(profile->word_bits == 9 ? BIT(8) : 0);
-			}
+		for (uint32_t t = 0; t < ARRAY_SIZE(LCD_TXFA_PROFILES); t++) {
+			const struct lcd_txfa_profile *txfa = &LCD_TXFA_PROFILES[t];
 
-			printf("# %s command BSCONF %s\n", use_tps ? "TPS" : "polling", profile->name);
-			test_check("controller reset before packed command", lcd_reset_and_init_controller());
-			test_check("packed command baseline write completes",
-				lcd_draw_solid(DIF_CSREG_BSCONF_1x8BIT, 0, 1, 0x001F));
-			lcd_command_bsconf = DIF_CSREG_BSCONF_1x8BIT;
-			lcd_data_bsconf = DIF_CSREG_BSCONF_1x8BIT;
-			test_check("packed command GRAM address write completes", lcd_set_gram_window(0, 1));
-			test_check("packed GRAM command completes", dif_write_pattern_stream(
-				true,
-				profile,
-				use_tps,
-				command_words,
-				lcd->gram_write_command_size,
-				&stream_words
-			));
-			test_check("packed command emits complete instructions",
-				stream_words % lcd->gram_write_command_size == 0);
-			lcd_command_bsconf = DIF_CSREG_BSCONF_1x8BIT;
-			lcd_data_bsconf = DIF_CSREG_BSCONF_1x8BIT;
-			test_check("row write after packed command completes",
-				lcd_write_pixels(DIF_CSREG_BSCONF_1x8BIT, 1, 0x1234));
-			test_check("pixel read after packed command completes", lcd_read_pixel_1x8(0, &pixel));
-			test_eq_u32("packed BSCONF command selects GRAM", 0x1234, pixel);
+			for (uint32_t i = 0; i < ARRAY_SIZE(LCD_PACKED_BSCONF_PROFILES); i++) {
+				const struct lcd_packed_bsconf_profile *profile = &LCD_PACKED_BSCONF_PROFILES[i];
+				uint16_t command_words[ARRAY_SIZE(lcd->gram_write_command)] = { 0 };
+				uint32_t stream_words = 0;
+				uint16_t pixel = 0;
+
+				if (!packed_words_fit_alignment(profile, txfa->align))
+					continue;
+				for (uint32_t byte = 0; byte < lcd->gram_write_command_size; byte++) {
+					command_words[byte] = lcd->gram_write_command[byte] |
+						(profile->word_bits == 9 ? BIT(8) : 0);
+				}
+
+				printf("# %s command BSCONF %s TXFA %s\n",
+					use_tps ? "TPS" : "polling", profile->name, txfa->name);
+				test_check("controller reset before packed command", lcd_reset_and_init_controller());
+				test_check("packed command baseline write completes",
+					lcd_draw_solid(DIF_CSREG_BSCONF_1x8BIT, 0, 1, 0x001F));
+				lcd_command_bsconf = DIF_CSREG_BSCONF_1x8BIT;
+				lcd_data_bsconf = DIF_CSREG_BSCONF_1x8BIT;
+				test_check("packed command GRAM address write completes", lcd_set_gram_window(0, 1));
+				test_check("packed GRAM command completes", dif_write_pattern_stream(
+					true,
+					profile,
+					txfa,
+					use_tps,
+					command_words,
+					lcd->gram_write_command_size,
+					&stream_words
+				));
+				test_check("packed command emits complete instructions",
+					stream_words % lcd->gram_write_command_size == 0);
+				lcd_command_bsconf = DIF_CSREG_BSCONF_1x8BIT;
+				lcd_data_bsconf = DIF_CSREG_BSCONF_1x8BIT;
+				test_check("row write after packed command completes",
+					lcd_write_pixels(DIF_CSREG_BSCONF_1x8BIT, 1, 0x1234));
+				test_check("pixel read after packed command completes", lcd_read_pixel_1x8(0, &pixel));
+				test_eq_u32("packed BSCONF command selects GRAM", 0x1234, pixel);
+			}
 		}
 
 		test_category(use_tps ? "TPS-packed data BSCONF writes" : "Polling-packed data BSCONF writes");
-		for (uint32_t i = 0; i < ARRAY_SIZE(LCD_PACKED_BSCONF_PROFILES); i++) {
-			const struct lcd_packed_bsconf_profile *profile = &LCD_PACKED_BSCONF_PROFILES[i];
-			uint16_t pattern[] = {
-				profile->word_bits == 9 ? 0x112 : 0x12,
-				profile->word_bits == 9 ? 0x134 : 0x34,
-			};
-			uint8_t expected[LCD_GRAM_TEST_BYTES_MAX] = { 0 };
-			uint8_t actual[sizeof(expected)] = { 0 };
-			uint32_t stream_words = LCD_GRAM_TEST_BYTES_MAX;
+		for (uint32_t t = 0; t < ARRAY_SIZE(LCD_TXFA_PROFILES); t++) {
+			const struct lcd_txfa_profile *txfa = &LCD_TXFA_PROFILES[t];
 
-			printf("# %s data BSCONF %s\n", use_tps ? "TPS" : "polling", profile->name);
-			test_check("controller reset before packed data", lcd_reset_and_init_controller());
-			test_check("packed data prepares GRAM", lcd_prepare_gram(0));
-			test_check("packed GRAM row completes", dif_write_pattern_row(
-				profile,
-				use_tps,
-				pattern,
-				ARRAY_SIZE(pattern)
-			));
-			for (uint32_t word = 0; word < stream_words; word++)
-				expected[word] = (word & 1) == 0 ? 0x12 : 0x34;
-			lcd_command_bsconf = DIF_CSREG_BSCONF_1x8BIT;
-			test_check("packed GRAM data read completes", lcd_read_gram_bytes(0, actual, stream_words));
-			test_eq_memory("packed BSCONF data preserves every bus byte", expected, actual, stream_words);
+			for (uint32_t i = 0; i < ARRAY_SIZE(LCD_PACKED_BSCONF_PROFILES); i++) {
+				const struct lcd_packed_bsconf_profile *profile = &LCD_PACKED_BSCONF_PROFILES[i];
+				uint16_t pattern[] = {
+					profile->word_bits == 9 ? 0x112 : 0x12,
+					profile->word_bits == 9 ? 0x134 : 0x34,
+				};
+				uint8_t expected[LCD_GRAM_TEST_BYTES_MAX] = { 0 };
+				uint8_t actual[sizeof(expected)] = { 0 };
+				uint32_t stream_words = LCD_GRAM_TEST_BYTES_MAX;
+
+				if (!packed_words_fit_alignment(profile, txfa->align))
+					continue;
+				printf("# %s data BSCONF %s TXFA %s\n",
+					use_tps ? "TPS" : "polling", profile->name, txfa->name);
+				test_check("controller reset before packed data", lcd_reset_and_init_controller());
+				test_check("packed data prepares GRAM", lcd_prepare_gram(0));
+				test_check("packed GRAM row completes", dif_write_pattern_row(
+					profile,
+					txfa,
+					use_tps,
+					pattern,
+					ARRAY_SIZE(pattern)
+				));
+				for (uint32_t word = 0; word < stream_words; word++)
+					expected[word] = (word & 1) == 0 ? 0x12 : 0x34;
+				lcd_command_bsconf = DIF_CSREG_BSCONF_1x8BIT;
+				test_check("packed GRAM data read completes", lcd_read_gram_bytes(0, actual, stream_words));
+				test_eq_memory("packed BSCONF data preserves every bus byte", expected, actual, stream_words);
+			}
 		}
 	}
 

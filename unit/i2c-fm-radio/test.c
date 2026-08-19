@@ -1,13 +1,17 @@
 #include <pmb887x.h>
 #include <fm/TEA5761UK.h>
 
-#include "i2c-v2.h"
 #include "test.h"
 
 #define FM_RADIO_READ_SIZE 16
 #define FM_RADIO_WRITE_SIZE 7
 
 #ifdef BOARD_SIEMENS_E71
+__IRQ void irq_handler(void) {
+	i2c_v2_handle_irq(VIC_IRQ_CURRENT);
+	VIC_IRQ_ACK = 1;
+}
+
 static void enable_fm_radio(void) {
 	GPIO_PIN(GPIO_CLK32) = GPIO_OS_ALT1 | GPIO_PS_ALT;
 	CGU_CON2 |= CGU_CON2_CLK32K_EN;

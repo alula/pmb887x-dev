@@ -106,7 +106,7 @@
 #define	GPIO_DIF_VD			100
 #define	GPIO_PIN101			101
 #define	GPIO_PIN102			102
-#define	GPIO_PIN103			103
+#define	GPIO_I2S2_WA1		103
 #define	GPIO_MMCI_CMD		104
 #define	GPIO_MMCI_DAT0		105
 #define	GPIO_MMCI_CLK		106

@@ -483,7 +483,7 @@ sub removeBreakpoint {
 sub parseSprintf {
 	my ($fmt, $callback) = @_;
 	
-	my @args;
+	my @args = ();
 	
 	my $process_fmt = sub {
 		my ($part) = @_;

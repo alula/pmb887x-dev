@@ -3,4 +3,5 @@ set -e
 set -x
 cmake -B build -DBOARD=$BOARD
 cmake --build build
-sie-tool boot -i build/app.bin --follow "$@"
+# sie-tool boot -i build/app.bin --follow "$@"
+perl ../../chaos-boot.pl --exec=build/app.bin $@

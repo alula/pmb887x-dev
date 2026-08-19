@@ -1483,6 +1483,67 @@ static void test_immediate_lcd_reads(void) {
 		id4_errors & DIF_ERRIRQSS_RXFUFL);
 }
 
+static void configure_continuous_tx(void) {
+	const struct fifo_config FIFO_BLIT = {
+		.rx = DIF_RXFIFO_CFG_RXBS_4_WORD | DIF_RXFIFO_CFG_RXFA_1,
+		.tx = DIF_TXFIFO_CFG_TXBS_8_WORD | DIF_TXFIFO_CFG_TXFA_2,
+	};
+
+	configure_dif(DIF_CON_BM_16, FIFO_BLIT);
+	DIF_RUNCTRL = 0;
+	DIF_CON = DIF_CON_BM_16;
+	DIF_PERREG = DIF_PERREG_DIFPERMODE_PARALLEL;
+	DIF_CSREG = DIF_CSREG_CS1 | DIF_CSREG_BSCONF_2x8BIT;
+	DIF_LCDTIM1 = DIF_LCDTIM1_ADDRDELAY | DIF_LCDTIM1_ACCESSCYCLE | DIF_LCDTIM1_DATADELAY;
+	DIF_LCDTIM2 = DIF_LCDTIM2_CSACT | DIF_LCDTIM2_CSDEACT | DIF_LCDTIM2_WRRDACT | DIF_LCDTIM2_WRRDDEACT;
+	DIF_RUNCTRL = DIF_RUNCTRL_RUN;
+}
+
+static void finish_continuous_tx(void) {
+	DIF_RUNCTRL = 0;
+	DIF_LCDTIM1 = 0;
+	DIF_LCDTIM2 = 0;
+	DIF_ICR = DIF_CLEAR_IRQS;
+	DIF_ERRIRQSC = DIF_CLEAR_ERRORS;
+}
+
+static bool wait_for_txbreq(void) {
+	stopwatch_t start = stopwatch_get();
+
+	while ((DIF_RIS & DIF_RIS_TXBREQ) == 0 && stopwatch_elapsed_ms(start) < DIF_TIMEOUT_MS)
+		test_watchdog_serve();
+
+	return (DIF_RIS & DIF_RIS_TXBREQ) != 0;
+}
+
+static void test_continuous_tx(void) {
+	const uint32_t PIXEL_PAIR = 0xE007E007;
+	const uint32_t BURST_STAGES = 8;
+
+	cpu_enable_irq(false);
+	configure_continuous_tx();
+	printf("# continuous TX RIS after RUN: %08X\n", (unsigned int) DIF_RIS);
+	DIF_ISR = DIF_ISR_TXBREQ;
+	test_check("ISR software seed raises TXBREQ", (DIF_RIS & DIF_RIS_TXBREQ) != 0);
+	DIF_IMSC = DIF_IMSC_TXBREQ;
+	test_check("seeded TXBREQ is unmasked", (DIF_MIS & DIF_MIS_TXBREQ) != 0);
+	DIF_IMSC = 0;
+
+	for (uint32_t burst = 0; burst < 4; burst++) {
+		test_check("continuous TX raises TXBREQ", wait_for_txbreq());
+		for (uint32_t stage = 0; stage < BURST_STAGES; stage++)
+			DIF_TXD = PIXEL_PAIR;
+		DIF_ICR = DIF_ICR_TXLSREQ | DIF_ICR_TXSREQ | DIF_ICR_TXLBREQ | DIF_ICR_TXBREQ;
+	}
+
+	test_check("drained continuous TX re-raises TXBREQ", wait_for_txbreq());
+	test_check("continuous TX completes", polling_wait_until_idle());
+	test_eq_u32("continuous TX drains TX FIFO", 0, DIF_TXFFS_STAT);
+	test_eq_u32("continuous TX does not use TPS_CTRL", 0, DIF_TPS_CTRL);
+	test_eq_u32("continuous TX has no TX FIFO overflow", 0, DIF_ERRIRQSS & DIF_ERRIRQSS_TXFOFL);
+	finish_continuous_tx();
+}
+
 static void test_firmware_polling(void) {
 	uint8_t buffer[5];
 
@@ -1843,6 +1904,58 @@ static void test_parallel_tx_dma_empty_fifo(void) {
 	);
 }
 
+static void test_continuous_tx_dma(void) {
+	const uint32_t PIXEL_PAIR = 0xE007E007;
+	const uint32_t SCANLINE_WORDS = 16;
+
+	cpu_enable_irq(false);
+	configure_continuous_tx();
+	for (uint32_t word = 0; word < SCANLINE_WORDS; word++)
+		dma_tx[word] = PIXEL_PAIR;
+
+	DMAC_CH_CONFIG(DMA_TX_CHANNEL) = 0;
+	DMAC_TC_CLEAR = BIT(DMA_TX_CHANNEL);
+	DMAC_ERR_CLEAR = BIT(DMA_TX_CHANNEL);
+	DMAC_CONFIG = DMAC_CONFIG_ENABLE;
+	SCU_DMARS &= ~BIT(DMA_TX_REQUEST);
+	DIF_DMAE = DIF_DMAE_TXBREQ;
+
+	for (uint32_t scanline = 0; scanline < 2; scanline++) {
+		printf("# continuous DMA scanline %u\n", (unsigned int) scanline);
+		DMAC_TC_CLEAR = BIT(DMA_TX_CHANNEL);
+		DMAC_CH_SRC_ADDR(DMA_TX_CHANNEL) = (uint32_t) dma_tx;
+		DMAC_CH_DST_ADDR(DMA_TX_CHANNEL) = (uint32_t) &DIF_TXD;
+		DMAC_CH_CONTROL(DMA_TX_CHANNEL) = (
+			SCANLINE_WORDS | DMAC_CH_CONTROL_SB_SIZE_SZ_4 | DMAC_CH_CONTROL_DB_SIZE_SZ_4 |
+			DMAC_CH_CONTROL_S_WIDTH_DWORD | DMAC_CH_CONTROL_D_WIDTH_DWORD | DMAC_CH_CONTROL_S_AHB2 |
+			DMAC_CH_CONTROL_D_AHB2 | DMAC_CH_CONTROL_SI | DMAC_CH_CONTROL_I
+		);
+		DMAC_CH_CONFIG(DMA_TX_CHANNEL) = (
+			(DMA_TX_REQUEST << DMAC_CH_CONFIG_DST_PERIPH_SHIFT) | DMAC_CH_CONFIG_FLOW_CTRL_MEM2PER |
+			DMAC_CH_CONFIG_INT_MASK_ERR | DMAC_CH_CONFIG_INT_MASK_TC | DMAC_CH_CONFIG_ENABLE
+		);
+		DIF_ISR = DIF_ISR_TXBREQ;
+
+		stopwatch_t start = stopwatch_get();
+		while ((DMAC_RAW_TC_STATUS & BIT(DMA_TX_CHANNEL)) == 0 &&
+			(DMAC_RAW_ERR_STATUS & BIT(DMA_TX_CHANNEL)) == 0 && stopwatch_elapsed_ms(start) < DIF_TIMEOUT_MS)
+			test_watchdog_serve();
+
+		test_eq_u32("continuous DMA TX reaches terminal count", BIT(DMA_TX_CHANNEL),
+			DMAC_RAW_TC_STATUS & BIT(DMA_TX_CHANNEL));
+		test_eq_u32("continuous DMA TX has no bus errors", 0,
+			DMAC_RAW_ERR_STATUS & BIT(DMA_TX_CHANNEL));
+		test_check("continuous DMA TX completes", polling_wait_until_idle());
+		test_eq_u32("continuous DMA TX drains TX FIFO", 0, DIF_TXFFS_STAT);
+		test_eq_u32("continuous DMA TX does not use TPS_CTRL", 0, DIF_TPS_CTRL);
+	}
+
+	DIF_DMAE = 0;
+	DMAC_CH_CONFIG(DMA_TX_CHANNEL) = 0;
+	test_eq_u32("continuous DMA TX has no TX FIFO overflow", 0, DIF_ERRIRQSS & DIF_ERRIRQSS_TXFOFL);
+	finish_continuous_tx();
+}
+
 static void test_dma(void) {
 	uint32_t channels = BIT(DMA_RX_CHANNEL) | BIT(DMA_TX_CHANNEL);
 	struct dma_transfer dma = {
@@ -2000,6 +2113,9 @@ static void test_dma(void) {
 
 	test_category("Parallel LCD DMA read");
 	test_dma_lcd_read();
+
+	test_category("Continuous DMA TX without TPS_CTRL");
+	test_continuous_tx_dma();
 }
 
 int dif_v2_test(void) {
@@ -2055,6 +2171,8 @@ int dif_v2_test(void) {
 	test_firmware_polling();
 	test_category("Immediate RXD underflow");
 	test_immediate_lcd_reads();
+	test_category("Continuous TX without TPS_CTRL");
+	test_continuous_tx();
 	return test_finish();
 }
 

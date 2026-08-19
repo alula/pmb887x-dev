@@ -213,6 +213,95 @@ static bool sim_hardware_t0_select_dma(void) {
 	return false;
 }
 
+static uint8_t t0_getresp_header[5] __attribute__((aligned(4)));
+
+static void sim_dma_reset(void) {
+	DMAC_CH_CONFIG(SIM_DMA_CHANNEL) = 0;
+	DMAC_TC_CLEAR = BIT(SIM_DMA_CHANNEL);
+	DMAC_ERR_CLEAR = BIT(SIM_DMA_CHANNEL);
+	DMAC_CONFIG = DMAC_CONFIG_ENABLE;
+	DMAC_SYNC = 0;
+}
+
+static bool sim_hardware_t0_getresponse_dma(uint8_t length, struct apdu_response *response) {
+	t0_getresp_header[0] = 0xA0;
+	t0_getresp_header[1] = 0xC0;
+	t0_getresp_header[2] = 0x00;
+	t0_getresp_header[3] = 0x00;
+	t0_getresp_header[4] = length;
+
+	SIM_IRQEN = SIM_IRQEN_ENOVR | SIM_IRQEN_ENT0END;
+	SIM_ICR = SIM_ICR_ERR | SIM_ICR_OK;
+
+	// Phase 1: DMA the 5 header bytes to SIMTX (MEM2PER, DMAC-flow, count terminates it).
+	DMAC_CONFIG = 0;
+	sim_dma_reset();
+	DMAC_CH_SRC_ADDR(SIM_DMA_CHANNEL) = (uint32_t) t0_getresp_header;
+	DMAC_CH_DST_ADDR(SIM_DMA_CHANNEL) = (uint32_t) &SIM_TXB;
+	DMAC_CH_LLI(SIM_DMA_CHANNEL) = 0;
+	DMAC_CH_CONTROL(SIM_DMA_CHANNEL) = (
+		ARRAY_SIZE(t0_getresp_header) | DMAC_CH_CONTROL_SB_SIZE_SZ_1 |
+		DMAC_CH_CONTROL_DB_SIZE_SZ_1 | DMAC_CH_CONTROL_S_WIDTH_BYTE |
+		DMAC_CH_CONTROL_D_WIDTH_BYTE | DMAC_CH_CONTROL_S_AHB2 | DMAC_CH_CONTROL_SI |
+		DMAC_CH_CONTROL_I
+	);
+	DMAC_CH_CONFIG(SIM_DMA_CHANNEL) = (
+		(SIM_DMA_REQUEST << DMAC_CH_CONFIG_DST_PERIPH_SHIFT) |
+		DMAC_CH_CONFIG_FLOW_CTRL_MEM2PER | DMAC_CH_CONFIG_INT_MASK_ERR |
+		DMAC_CH_CONFIG_INT_MASK_TC
+	);
+
+	SIM_INS = SIM_INS_INSDIR | 0xC0;
+	SIM_P3 = length;
+	SIM_DMAE = SIM_DMAE_OK;
+	DMAC_CH_CONFIG(SIM_DMA_CHANNEL) |= DMAC_CH_CONFIG_ENABLE;
+
+	// First UARTOK-equivalent: header fully clocked out (DMA terminal count).
+	stopwatch_t start = stopwatch_get();
+	while (stopwatch_elapsed_ms(start) < 1000) {
+		if (DMAC_RAW_TC_STATUS & BIT(SIM_DMA_CHANNEL))
+			break;
+		if (DMAC_RAW_ERR_STATUS & BIT(SIM_DMA_CHANNEL))
+			return false;
+		test_watchdog_serve();
+	}
+	if (!(DMAC_RAW_TC_STATUS & BIT(SIM_DMA_CHANNEL)))
+		return false;
+
+	// Phase 2: re-program the same channel to receive the response body from SIMRX.
+	sim_dma_reset();
+	DMAC_CH_SRC_ADDR(SIM_DMA_CHANNEL) = (uint32_t) &SIM_RXB;
+	DMAC_CH_DST_ADDR(SIM_DMA_CHANNEL) = (uint32_t) response->data;
+	DMAC_CH_LLI(SIM_DMA_CHANNEL) = 0;
+	DMAC_CH_CONTROL(SIM_DMA_CHANNEL) = (
+		length | DMAC_CH_CONTROL_SB_SIZE_SZ_1 | DMAC_CH_CONTROL_DB_SIZE_SZ_1 |
+		DMAC_CH_CONTROL_S_WIDTH_BYTE | DMAC_CH_CONTROL_D_WIDTH_BYTE |
+		DMAC_CH_CONTROL_DI | DMAC_CH_CONTROL_I
+	);
+	DMAC_CH_CONFIG(SIM_DMA_CHANNEL) = (
+		(SIM_DMA_REQUEST << DMAC_CH_CONFIG_SRC_PERIPH_SHIFT) |
+		DMAC_CH_CONFIG_FLOW_CTRL_PER2MEM_PER | DMAC_CH_CONFIG_INT_MASK_ERR |
+		DMAC_CH_CONFIG_INT_MASK_TC | DMAC_CH_CONFIG_ENABLE
+	);
+
+	// Await T0END: the T=0 controller received the body (into the DMA) and SW1/SW2.
+	start = stopwatch_get();
+	while (stopwatch_elapsed_ms(start) < 1000) {
+		if (SIM_STAT & SIM_STAT_T0END)
+			break;
+		if (DMAC_RAW_ERR_STATUS & BIT(SIM_DMA_CHANNEL))
+			return false;
+		test_watchdog_serve();
+	}
+	if (!(SIM_STAT & SIM_STAT_T0END))
+		return false;
+
+	response->size = length;
+	response->sw1 = SIM_SW1;
+	response->sw2 = SIM_SW2;
+	return true;
+}
+
 #endif
 
 #ifdef SIM_TIMER_TEST
@@ -598,6 +687,22 @@ int main(void) {
 	test_check("T0END remains visible in STAT", (SIM_STAT & SIM_STAT_T0END) != 0);
 	printf("# SELECT MF hardware status: %02X%02X\n", (unsigned int) SIM_SW1, (unsigned int) SIM_SW2);
 	test_check("SELECT MF succeeds", SIM_SW1 == 0x90 || SIM_SW1 == 0x9F || SIM_SW1 == 0x61);
+
+	if (response_has_data(SIM_SW1)) {
+		uint8_t response_length = SIM_SW2;
+		test_category("Hardware T=0 GET RESPONSE DMA");
+		bool got = sim_hardware_t0_getresponse_dma(response_length, &response);
+		test_check("GET RESPONSE PER2MEM_PER DMA completes", got);
+		if (got) {
+			test_eq_u32("GET RESPONSE DMA has no bus error", 0,
+				DMAC_RAW_ERR_STATUS & BIT(SIM_DMA_CHANNEL));
+			test_eq_u32("GET RESPONSE reads the requested length", response_length, response.size);
+			printf("# GET RESPONSE status: %02X%02X\n", response.sw1, response.sw2);
+			test_eq_u32("GET RESPONSE status is 9000", 0x9000,
+				(response.sw1 << 8) | response.sw2);
+			print_bytes("MF response", response.data, response.size);
+		}
+	}
 	goto done;
 #endif
 

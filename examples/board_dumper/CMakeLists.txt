@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.15)
 
+set(BOOT extram)
 set(CMAKE_TOOLCHAIN_FILE ../../lib/toolchain.cmake)
 
 project(app LANGUAGES C)
